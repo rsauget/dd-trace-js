@@ -42,6 +42,7 @@ function wrapHandler (func, name) {
         // in some cases on non-unary operations, the code is recorded in the status
         const { status } = arguments[0]
         const code = status && status.code
+        console.log(`code is ${code}`)
         finishChannel.publish({ code: code || CANCELLED })
       }))
 
