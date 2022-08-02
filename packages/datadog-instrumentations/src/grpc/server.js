@@ -38,7 +38,9 @@ function wrapHandler (func, name) {
       startChannel.publish({ name, metadata, type })
 
       // Finish the span if the call was cancelled.
-      call.once('cancelled', requestResource.bind(() => {
+      call.once('cancelled', requestResource.bind((...args) => {
+        console.log(arguments)
+        console.log(args)
         finishChannel.publish({ code: CANCELLED })
       }))
 
