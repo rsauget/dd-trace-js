@@ -41,7 +41,7 @@ function wrapHandler (func, name) {
       call.once('cancelled', requestResource.bind(() => {
         // in some cases on non-unary operations, the code is recorded in the status
         const { status } = arguments[0]
-        const code = status.code
+        const code = status && status.code
         finishChannel.publish({ code: code || CANCELLED })
       }))
 
