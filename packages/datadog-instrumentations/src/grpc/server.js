@@ -40,7 +40,8 @@ function wrapHandler (func, name) {
       // Finish the span if the call was cancelled.
       call.once('cancelled', requestResource.bind(() => {
         // in some cases on non-unary operations, the code is recorded in the status
-        const { code } = arguments[0].status
+        const { status } = arguments[0]
+        const code = status.code
         finishChannel.publish({ code: code || CANCELLED })
       }))
 
