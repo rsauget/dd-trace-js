@@ -20,7 +20,7 @@ const disabledPlugins = new Set(
 
 const pluginClasses = {}
 
-loadChannel.subscribe(({ name }) => {
+const onLoad = ({ name }) => {
   const Plugin = plugins[name]
 
   if (!Plugin || typeof Plugin !== 'function') return
@@ -37,7 +37,11 @@ loadChannel.subscribe(({ name }) => {
       pluginClasses[Plugin.name] = Plugin
     }
   }
-})
+}
+
+if (!loadChannel._subscribers || !loadChannel._subscribers.some(sub => sub.toString() === onLoad.toString())) {
+  loadChannel.subscribe(onLoad)
+}
 
 // TODO this must always be a singleton.
 module.exports = class PluginManager {
@@ -55,7 +59,10 @@ module.exports = class PluginManager {
       this.loadPlugin(Plugin.name)
     }
 
-    loadChannel.subscribe(this._loadedSubscriber)
+    if (!loadChannel._subscribers ||
+        !loadChannel._subscribers.some(sub => sub.toString() === this._loadedSubscriber.toString())) {
+      loadChannel.subscribe(this._loadedSubscriber)
+    }
   }
 
   loadPlugin (name) {
