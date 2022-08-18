@@ -39,7 +39,14 @@ const onLoad = ({ name }) => {
   }
 }
 
-if (!loadChannel._subscribers || !loadChannel._subscribers.some(sub => sub.toString() === onLoad.toString())) {
+if (!loadChannel._subscribers) {
+  loadChannel.subscribe(onLoad)
+} else {
+  const oldSubscription =
+    loadChannel._subscribers.find(sub => sub.toString() === onLoad.toString())
+  if (oldSubscription) {
+    loadChannel.unsubscribe(oldSubscription)
+  }
   loadChannel.subscribe(onLoad)
 }
 
@@ -59,8 +66,14 @@ module.exports = class PluginManager {
       this.loadPlugin(Plugin.name)
     }
 
-    if (!loadChannel._subscribers ||
-        !loadChannel._subscribers.some(sub => sub.toString() === this._loadedSubscriber.toString())) {
+    if (!loadChannel._subscribers) {
+      loadChannel.subscribe(this._loadedSubscriber)
+    } else {
+      const oldSubscription =
+        loadChannel._subscribers.find(sub => sub.toString() === this._loadedSubscriber.toString())
+      if (oldSubscription) {
+        loadChannel.unsubscribe(oldSubscription)
+      }
       loadChannel.subscribe(this._loadedSubscriber)
     }
   }
