@@ -2,6 +2,7 @@
 
 const AgentExporter = require('./exporters/agent')
 const LogExporter = require('./exporters/log')
+const BinaryExporter = require('./exporters/binary');
 const AgentlessCiVisibilityExporter = require('./ci-visibility/exporters/agentless')
 const exporters = require('../../../ext/exporters')
 const fs = require('fs')
@@ -18,6 +19,8 @@ module.exports = name => {
       return AgentExporter
     case exporters.DATADOG:
       return AgentlessCiVisibilityExporter
+    case exporters.BINARY:
+      return BinaryExporter
     default:
       return inAWSLambda && !usingLambdaExtension ? LogExporter : AgentExporter
   }

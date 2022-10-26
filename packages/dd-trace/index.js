@@ -1,5 +1,6 @@
 'use strict'
 
+
 if (!global._ddtrace) {
   const TracerProxy = require('./src')
 
