@@ -19,5 +19,17 @@ module.exports = {
   SPAN_SAMPLING_RULE_RATE: '_dd.span_sampling.rule_rate',
   SPAN_SAMPLING_MAX_PER_SECOND: '_dd.span_sampling.max_per_second',
   DATADOG_LAMBDA_EXTENSION_PATH: '/opt/extensions/datadog-agent',
-  DECISION_MAKER_KEY: '_dd.p.dm'
+  DECISION_MAKER_KEY: '_dd.p.dm',
+
+  // Azure App Services
+  AZURE_APP_SERVICE_SITE_NAME: 'aas.site.name',
+  AZURE_APP_SERVICE_SITE_KIND: 'aas.site.kind',
+  AZURE_APP_SERVICE_SITE_TYPE: 'aas.site.type',
+  AZURE_APP_SERVICE_RESOURCE_GROUP: 'aas.resource.group',
+  AZURE_APP_SERVICE_SUBSCRIPTION_ID: 'aas.subscription.id',
+  AZURE_APP_SERVICE_RESOURCE_ID: 'aas.resource.id',
+  AZURE_APP_SERVICE_INSTANCE_ID: 'aas.environment.instance_id',
+  AZURE_APP_SERVICE_INSTANCE_NAME: 'aas.environment.instance_name',
+  AZURE_APP_SERVICE_OPERATING_SYSTEM: 'aas.environment.os',
+  AZURE_APP_SERVICE_RUNTIME: 'aas.environment.runtime'
 }

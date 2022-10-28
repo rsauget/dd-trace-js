@@ -4,6 +4,8 @@ const constants = require('./constants')
 const tags = require('../../../ext/tags')
 const id = require('./id')
 const { isError } = require('./util')
+const config = require('./config')
+const aas = require('./azure_app_services')
 
 const SAMPLING_PRIORITY_KEY = constants.SAMPLING_PRIORITY_KEY
 const SAMPLING_RULE_DECISION = constants.SAMPLING_RULE_DECISION
@@ -18,18 +20,29 @@ const ORIGIN_KEY = constants.ORIGIN_KEY
 const HOSTNAME_KEY = constants.HOSTNAME_KEY
 const TOP_LEVEL_KEY = constants.TOP_LEVEL_KEY
 
+const AZURE_APP_SERVICE_SITE_KIND = constants.AZURE_APP_SERVICE_SITE_KIND
+const AZURE_APP_SERVICE_SITE_TYPE = constants.AZURE_APP_SERVICE_SITE_TYPE
+const AZURE_APP_SERVICE_SITE_NAME = constants.AZURE_APP_SERVICE_SITE_NAME
+const AZURE_APP_SERVICE_RESOURCE_GROUP = constants.AZURE_APP_SERVICE_RESOURCE_GROUP
+const AZURE_APP_SERVICE_SUBSCRIPTION_ID = constants.AZURE_APP_SERVICE_SUBSCRIPTION_ID
+const AZURE_APP_SERVICE_RESOURCE_ID = constants.AZURE_APP_SERVICE_RESOURCE_ID
+const AZURE_APP_SERVICE_INSTANCE_ID = constants.AZURE_APP_SERVICE_INSTANCE_ID
+const AZURE_APP_SERVICE_INSTANCE_NAME = constants.AZURE_APP_SERVICE_INSTANCE_NAME
+const AZURE_APP_SERVICE_OPERATING_SYSTEM = constants.AZURE_APP_SERVICE_OPERATING_SYSTEM
+const AZURE_APP_SERVICE_RUNTIME = constants.AZURE_APP_SERVICE_RUNTIME
+
 const map = {
   'service.name': 'service',
   'span.type': 'type',
   'resource.name': 'resource'
 }
 
-function format (span) {
+function format (span, config) {
   const formatted = formatSpan(span)
 
   extractRootTags(formatted, span)
   extractChunkTags(formatted, span)
-  extractTags(formatted, span)
+  extractTags(formatted, span, config)
 
   return formatted
 }
@@ -109,6 +122,11 @@ function extractTags (trace, span) {
 
   setSingleSpanIngestionTags(trace, context._sampling.spanSampling)
 
+  if (config.inAzureAppServices) {
+    const azureMetadata = aas.setAzureAppServiceMetadata()
+    setAzureAppServiceTags(azureMetadata, trace, span)
+  }
+
   addTag(trace.meta, trace.metrics, SAMPLING_PRIORITY_KEY, priority)
   addTag(trace.meta, trace.metrics, ORIGIN_KEY, origin)
   addTag(trace.meta, trace.metrics, HOSTNAME_KEY, hostname)
@@ -136,6 +154,25 @@ function extractChunkTags (trace, span) {
   for (const key in context._trace.tags) {
     addTag(trace.meta, trace.metrics, key, context._trace.tags[key])
   }
+}
+
+function setAzureAppServiceTags (azureMetadata, trace, span) {
+  const context = span.context()
+  const isLocalRoot = span === context._trace.started[0]
+  const parentId = context._parentId
+
+  if (!isLocalRoot || (parentId && parentId.toString(10) !== '0')) return
+
+  addTag(trace.meta, trace.metrics, AZURE_APP_SERVICE_SITE_TYPE, 'app')
+  addTag(trace.meta, trace.metrics, AZURE_APP_SERVICE_SITE_KIND, 'app')
+  addTag(trace.meta, trace.metrics, AZURE_APP_SERVICE_SITE_NAME, azureMetadata.siteName)
+  addTag(trace.meta, trace.metrics, AZURE_APP_SERVICE_SUBSCRIPTION_ID, azureMetadata.subscriptionID)
+  addTag(trace.meta, trace.metrics, AZURE_APP_SERVICE_RESOURCE_GROUP, azureMetadata.reresourceGroup)
+  addTag(trace.meta, trace.metrics, AZURE_APP_SERVICE_RESOURCE_ID, azureMetadata.resourceID)
+  addTag(trace.meta, trace.metrics, AZURE_APP_SERVICE_INSTANCE_ID, azureMetadata.instanceID)
+  addTag(trace.meta, trace.metrics, AZURE_APP_SERVICE_INSTANCE_NAME, azureMetadata.instanceName)
+  addTag(trace.meta, trace.metrics, AZURE_APP_SERVICE_OPERATING_SYSTEM, azureMetadata.os)
+  addTag(trace.meta, trace.metrics, AZURE_APP_SERVICE_RUNTIME, azureMetadata.runtime)
 }
 
 function extractError (trace, error) {

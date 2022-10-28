@@ -33,7 +33,7 @@ class SpanProcessor {
 
       for (const span of started) {
         if (span._duration !== undefined) {
-          const formattedSpan = format(span)
+          const formattedSpan = format(span, this._config)
           this._stats.onSpanFinished(formattedSpan)
           formatted.push(formattedSpan)
         } else {

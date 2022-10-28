@@ -412,7 +412,7 @@ export declare interface TracerOptions {
        * @default 2
        */
       maxContextOperations?: number
-    }
+    } 
   };
 
   /**
@@ -500,6 +500,12 @@ export declare interface TracerOptions {
      */
     obfuscatorValueRegex?: string
   };
+
+  /**
+   * Enables tracing for Azure App Services.
+   * @default false
+   */
+  azureAppServices?: boolean
 }
 
 /**

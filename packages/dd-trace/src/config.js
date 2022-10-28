@@ -297,6 +297,12 @@ ken|consumer_?(?:id|key|secret)|sign(?:ed|ature)?|auth(?:entication|orization)?)
     const inAWSLambda = process.env.AWS_LAMBDA_FUNCTION_NAME !== undefined
     const defaultFlushInterval = inAWSLambda ? 0 : 2000
 
+    const inAzureAppServices = coalesce(
+      options.azureAppServices,
+      process.env.DD_AZURE_APP_SERVICES,
+      false
+    )
+
     this.tracing = !isFalse(DD_TRACING_ENABLED)
     this.debug = isTrue(DD_TRACE_DEBUG)
     this.logInjection = isTrue(DD_LOGS_INJECTION)
@@ -369,6 +375,7 @@ ken|consumer_?(?:id|key|secret)|sign(?:ed|ature)?|auth(?:entication|orization)?)
     this.stats = {
       enabled: isTrue(DD_TRACE_STATS_COMPUTATION_ENABLED)
     }
+    this.inAzureAppServices = inAzureAppServices
 
     tagger.add(this.tags, {
       service: this.service,
