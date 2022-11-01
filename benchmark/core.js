@@ -39,7 +39,7 @@ let writer
 let sampler
 
 const spanStub = require('./stubs/span')
-const span = format(spanStub)
+const span = format(spanStub, config)
 
 suite
   .add('DatadogTracer#startSpan', {
@@ -95,7 +95,7 @@ suite
   })
   .add('format', {
     fn () {
-      format(spanStub)
+      format(spanStub, config)
     }
   })
   .add('encode (0.4)', {
