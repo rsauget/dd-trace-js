@@ -4,8 +4,7 @@ const constants = require('./constants')
 const tags = require('../../../ext/tags')
 const id = require('./id')
 const { isError } = require('./util')
-const config = require('./config')
-const aas = require('./azure_app_services')
+const AzureAppServices = require('./azure_app_services')
 
 const SAMPLING_PRIORITY_KEY = constants.SAMPLING_PRIORITY_KEY
 const SAMPLING_RULE_DECISION = constants.SAMPLING_RULE_DECISION
@@ -36,6 +35,8 @@ const map = {
   'span.type': 'type',
   'resource.name': 'resource'
 }
+
+const aas = new AzureAppServices({})
 
 function format (span, config) {
   const formatted = formatSpan(span)
@@ -71,7 +72,7 @@ function setSingleSpanIngestionTags (span, options) {
   addTag({}, span.metrics, SPAN_SAMPLING_MAX_PER_SECOND, options.maxPerSecond)
 }
 
-function extractTags (trace, span) {
+function extractTags (trace, span, config) {
   const context = span.context()
   const origin = context._trace.origin
   const tags = context._tags
@@ -123,8 +124,7 @@ function extractTags (trace, span) {
   setSingleSpanIngestionTags(trace, context._sampling.spanSampling)
 
   if (config.inAzureAppServices) {
-    const azureMetadata = aas.setAzureAppServiceMetadata()
-    setAzureAppServiceTags(azureMetadata, trace, span)
+    setAzureAppServiceTags(aas.metadata, trace, span)
   }
 
   addTag(trace.meta, trace.metrics, SAMPLING_PRIORITY_KEY, priority)

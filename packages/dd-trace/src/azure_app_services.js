@@ -2,7 +2,13 @@
 
 const log = require('./log')
 
-export function setAzureAppServiceMetadata () {
+class AzureAppServices {
+  constructor () {
+    this.metadata = setAzureAppServiceMetadata()
+  }
+}
+
+function setAzureAppServiceMetadata () {
   const SITE_NAME = process.env.WEBSITE_SITE_NAME
   const SUBSCRIPTION_ID = parseAzureSubscriptionID(process.env.WEBSITE_OWNER_NAME)
   const RESOURCE_GROUP = process.env.WEBSITE_RESOURCE_GROUP
@@ -37,3 +43,5 @@ function compileAzureResourceID (subID, resourceID, siteName) {
     log.info('Could not generate the Azure App Service Resource ID')
   }
 }
+
+module.exports = AzureAppServices
