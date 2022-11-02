@@ -43,7 +43,11 @@ function format (span, config) {
 
   extractRootTags(formatted, span)
   extractChunkTags(formatted, span)
-  extractTags(formatted, span, config)
+  extractTags(formatted, span)
+
+  if (config.inAzureAppServices) {
+    setAzureAppServiceTags(aas.metadata, span)
+  }
 
   return formatted
 }
@@ -72,7 +76,7 @@ function setSingleSpanIngestionTags (span, options) {
   addTag({}, span.metrics, SPAN_SAMPLING_MAX_PER_SECOND, options.maxPerSecond)
 }
 
-function extractTags (trace, span, config) {
+function extractTags (trace, span) {
   const context = span.context()
   const origin = context._trace.origin
   const tags = context._tags
@@ -123,10 +127,6 @@ function extractTags (trace, span, config) {
 
   setSingleSpanIngestionTags(trace, context._sampling.spanSampling)
 
-  if (config.inAzureAppServices) {
-    setAzureAppServiceTags(aas.metadata, trace, span)
-  }
-
   addTag(trace.meta, trace.metrics, SAMPLING_PRIORITY_KEY, priority)
   addTag(trace.meta, trace.metrics, ORIGIN_KEY, origin)
   addTag(trace.meta, trace.metrics, HOSTNAME_KEY, hostname)
@@ -156,23 +156,23 @@ function extractChunkTags (trace, span) {
   }
 }
 
-function setAzureAppServiceTags (azureMetadata, trace, span) {
+function setAzureAppServiceTags (azureMetadata, span) {
   const context = span.context()
+  const tags = context._tags
   const isLocalRoot = span === context._trace.started[0]
-  const parentId = context._parentId
 
-  if (!isLocalRoot || (parentId && parentId.toString(10) !== '0')) return
+  if (!isLocalRoot) return
 
-  addTag(trace.meta, trace.metrics, AZURE_APP_SERVICE_SITE_TYPE, 'app')
-  addTag(trace.meta, trace.metrics, AZURE_APP_SERVICE_SITE_KIND, 'app')
-  addTag(trace.meta, trace.metrics, AZURE_APP_SERVICE_SITE_NAME, azureMetadata.siteName)
-  addTag(trace.meta, trace.metrics, AZURE_APP_SERVICE_SUBSCRIPTION_ID, azureMetadata.subscriptionID)
-  addTag(trace.meta, trace.metrics, AZURE_APP_SERVICE_RESOURCE_GROUP, azureMetadata.reresourceGroup)
-  addTag(trace.meta, trace.metrics, AZURE_APP_SERVICE_RESOURCE_ID, azureMetadata.resourceID)
-  addTag(trace.meta, trace.metrics, AZURE_APP_SERVICE_INSTANCE_ID, azureMetadata.instanceID)
-  addTag(trace.meta, trace.metrics, AZURE_APP_SERVICE_INSTANCE_NAME, azureMetadata.instanceName)
-  addTag(trace.meta, trace.metrics, AZURE_APP_SERVICE_OPERATING_SYSTEM, azureMetadata.os)
-  addTag(trace.meta, trace.metrics, AZURE_APP_SERVICE_RUNTIME, azureMetadata.runtime)
+  addSpanTag(tags, AZURE_APP_SERVICE_SITE_TYPE, 'app')
+  addSpanTag(tags, AZURE_APP_SERVICE_SITE_KIND, 'app')
+  addSpanTag(tags, AZURE_APP_SERVICE_SITE_NAME, azureMetadata.siteName)
+  addSpanTag(tags, AZURE_APP_SERVICE_SUBSCRIPTION_ID, azureMetadata.subscriptionID)
+  addSpanTag(tags, AZURE_APP_SERVICE_RESOURCE_GROUP, azureMetadata.reresourceGroup)
+  addSpanTag(tags, AZURE_APP_SERVICE_RESOURCE_ID, azureMetadata.resourceID)
+  addSpanTag(tags, AZURE_APP_SERVICE_INSTANCE_ID, azureMetadata.instanceID)
+  addSpanTag(tags, AZURE_APP_SERVICE_INSTANCE_NAME, azureMetadata.instanceName)
+  addSpanTag(tags, AZURE_APP_SERVICE_OPERATING_SYSTEM, azureMetadata.os)
+  addSpanTag(tags, AZURE_APP_SERVICE_RUNTIME, azureMetadata.runtime)
 }
 
 function extractError (trace, error) {
@@ -230,6 +230,10 @@ function isUrl (obj) {
   return obj.constructor && obj.constructor.name === 'URL' &&
     typeof obj.href === 'string' &&
     typeof obj.toString === 'function'
+}
+
+function addSpanTag (tagContext, key, val) {
+  tagContext[key] = val
 }
 
 module.exports = format

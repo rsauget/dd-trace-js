@@ -36,9 +36,9 @@ function parseAzureSubscriptionID (subID) {
   }
 }
 
-function compileAzureResourceID (subID, resourceID, siteName) {
-  if (subID !== undefined && resourceID !== undefined && siteName !== undefined) {
-    return `/subscriptions/${subID}/resourcegroups/${resourceID}/providers/microsoft.web/sites/${siteName}`
+function compileAzureResourceID (subID, resourceGroup, siteName) {
+  if (subID !== undefined && resourceGroup !== undefined && siteName !== undefined) {
+    return `/subscriptions/${subID}/resourcegroups/${resourceGroup}/providers/microsoft.web/sites/${siteName}`
   } else {
     log.info('Could not generate the Azure App Service Resource ID')
   }
