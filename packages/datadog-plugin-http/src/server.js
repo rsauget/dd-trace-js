@@ -4,9 +4,6 @@ const Plugin = require('../../dd-trace/src/plugins/plugin')
 const { storage } = require('../../datadog-core')
 const web = require('../../dd-trace/src/plugins/util/web')
 const { incomingHttpRequestStart } = require('../../dd-trace/src/appsec/gateway/channels')
-const tags = require('../../../ext/tags')
-const analyticsSampler = require('../../dd-trace/src/analytics_sampler')
-const SERVICE_NAME = tags.SERVICE_NAME
 
 class HttpServerPlugin extends Plugin {
   static get name () {
@@ -18,14 +15,9 @@ class HttpServerPlugin extends Plugin {
 
     this.addSub('apm:http:server:request:start', ({ req, res }) => {
       const store = storage.getStore()
-      const span = web.startSpan(this.tracer, this.config, req, res, 'http.request')
+      const span = web.startSpan(this.tracer, this.config, req, res, 'web.request')
 
-      if (this.config.service) {
-        span.setTag(SERVICE_NAME, this.config.service)
-      }
-
-      analyticsSampler.sample(span, this.config.measured, true)
-      this.enter(span, store)
+      this.enter(span, { ...store, req })
 
       const context = web.getContext(req)
 
@@ -39,25 +31,16 @@ class HttpServerPlugin extends Plugin {
       }
     })
 
-    this.addSub('apm:http:server:request:end', () => {
-      this.exit()
-    })
-
     this.addSub('apm:http:server:request:error', (error) => {
-      const span = storage.getStore().span
-      span.addTags({
-        'error.type': error.name,
-        'error.msg': error.message,
-        'error.stack': error.stack
-      })
+      web.addError(error)
     })
 
-    this.addSub('apm:http:server:request:async-end', ({ req }) => {
+    this.addSub('apm:http:server:request:finish', ({ req }) => {
       const context = web.getContext(req)
 
-      if (!context) return // Not created by a http.Server instance.
+      if (!context || !context.res) return // Not created by a http.Server instance.
 
-      web.wrapRes(context, context.req, context.res, context.res.end)()
+      web.finishAll(context)
     })
   }
 

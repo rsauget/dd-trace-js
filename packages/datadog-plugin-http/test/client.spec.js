@@ -62,7 +62,7 @@ describe('Plugin', () => {
           getPort().then(port => {
             agent
               .use(traces => {
-                expect(traces[0][0]).to.have.property('service', 'test-http-client')
+                expect(traces[0][0]).to.have.property('service', 'test')
                 expect(traces[0][0]).to.have.property('type', 'http')
                 expect(traces[0][0]).to.have.property('resource', 'GET')
                 expect(traces[0][0].meta).to.have.property('span.kind', 'client')
@@ -117,7 +117,7 @@ describe('Plugin', () => {
           getPort().then(port => {
             agent
               .use(traces => {
-                expect(traces[0][0]).to.have.property('service', 'test-http-client')
+                expect(traces[0][0]).to.have.property('service', 'test')
                 expect(traces[0][0]).to.have.property('type', 'http')
                 expect(traces[0][0]).to.have.property('resource', 'CONNECT')
                 expect(traces[0][0].meta).to.have.property('span.kind', 'client')
@@ -160,7 +160,7 @@ describe('Plugin', () => {
           getPort().then(port => {
             agent
               .use(traces => {
-                expect(traces[0][0]).to.have.property('service', 'test-http-client')
+                expect(traces[0][0]).to.have.property('service', 'test')
                 expect(traces[0][0]).to.have.property('type', 'http')
                 expect(traces[0][0]).to.have.property('resource', 'GET')
                 expect(traces[0][0].meta).to.have.property('span.kind', 'client')
@@ -708,7 +708,7 @@ describe('Plugin', () => {
           })
         })
 
-        it('should record aborted requests as errors', done => {
+        it('should not record aborted requests as errors', done => {
           const app = express()
 
           app.get('/user', (req, res) => {})
@@ -716,7 +716,7 @@ describe('Plugin', () => {
           getPort().then(port => {
             agent
               .use(traces => {
-                expect(traces[0][0]).to.have.property('error', 1)
+                expect(traces[0][0]).to.have.property('error', 0)
                 expect(traces[0][0].meta).to.not.have.property('http.status_code')
               })
               .then(done)
@@ -813,7 +813,7 @@ describe('Plugin', () => {
           getPort().then(port => {
             agent
               .use(traces => {
-                expect(traces[0][0]).to.have.property('service', 'test-http-client')
+                expect(traces[0][0]).to.have.property('service', 'test')
               })
               .then(done)
               .catch(done)
@@ -1218,6 +1218,52 @@ describe('Plugin', () => {
               const req = http.request({
                 port,
                 path: '/users'
+              })
+
+              req.end()
+            })
+          })
+        })
+      })
+
+      describe('with blocklist configuration', () => {
+        let config
+
+        beforeEach(() => {
+          config = {
+            server: false,
+            client: {
+              blocklist: [/\/user/]
+            }
+          }
+
+          return agent.load('http', config)
+            .then(() => {
+              http = require(protocol)
+              express = require('express')
+            })
+        })
+
+        it('should skip recording if the url matches an item in the blocklist', done => {
+          const app = express()
+
+          app.get('/user', (req, res) => {
+            res.status(200).send()
+          })
+
+          getPort().then(port => {
+            const timer = setTimeout(done, 100)
+
+            agent
+              .use(() => {
+                clearTimeout(timer)
+                done(new Error('Blocklisted requests should not be recorded.'))
+              })
+              .catch(done)
+
+            appListener = server(app, port, () => {
+              const req = http.request(`${protocol}://localhost:${port}/user`, res => {
+                res.on('data', () => {})
               })
 
               req.end()

@@ -10,12 +10,12 @@ const { request } = require('http')
 const getPort = require('get-port')
 const proxyquire = require('proxyquire')
 const { gunzipSync } = require('zlib')
-const CpuProfiler = require('../../../src/profiling/profilers/cpu')
-const HeapProfiler = require('../../../src/profiling/profilers/heap')
+const WallProfiler = require('../../../src/profiling/profilers/wall')
+const SpaceProfiler = require('../../../src/profiling/profilers/space')
 const logger = require('../../../src/log')
 const { perftools } = require('@datadog/pprof/proto/profile')
 const semver = require('semver')
-const version = require('../../../lib/version')
+const version = require('../../../../../package.json').version
 
 if (!semver.satisfies(process.version, '>=10.12')) {
   describe = describe.skip // eslint-disable-line no-global-assign
@@ -31,7 +31,7 @@ function wait (ms) {
 
 async function createProfile (periodType) {
   const [ type ] = periodType
-  const profiler = type === 'wall' ? new CpuProfiler() : new HeapProfiler()
+  const profiler = type === 'wall' ? new WallProfiler() : new SpaceProfiler()
   profiler.start({
     // Throw errors in test rather than logging them
     logger: {
@@ -50,7 +50,9 @@ async function createProfile (periodType) {
 
 const describeOnUnix = os.platform() === 'win32' ? describe.skip : describe
 
-describe('exporters/agent', () => {
+describe('exporters/agent', function () {
+  this.timeout(10000)
+
   let AgentExporter
   let sockets
   let url
@@ -75,28 +77,28 @@ describe('exporters/agent', () => {
       'format:pprof',
       'runtime-id:a1b2c3d4-a1b2-a1b2-a1b2-a1b2c3d4e5f6'
     ])
-    expect(req.body).to.have.deep.property('types', ['cpu', 'heap'])
+    expect(req.body).to.have.deep.property('types', ['wall', 'space'])
     expect(req.body).to.have.property('recording-start', start.toISOString())
     expect(req.body).to.have.property('recording-end', end.toISOString())
 
     expect(req.files[0]).to.have.property('fieldname', 'data[0]')
-    expect(req.files[0]).to.have.property('originalname', 'cpu.pb.gz')
+    expect(req.files[0]).to.have.property('originalname', 'wall.pb.gz')
     expect(req.files[0]).to.have.property('mimetype', 'application/octet-stream')
     expect(req.files[0]).to.have.property('size', req.files[0].buffer.length)
 
     expect(req.files[1]).to.have.property('fieldname', 'data[1]')
-    expect(req.files[1]).to.have.property('originalname', 'heap.pb.gz')
+    expect(req.files[1]).to.have.property('originalname', 'space.pb.gz')
     expect(req.files[1]).to.have.property('mimetype', 'application/octet-stream')
     expect(req.files[1]).to.have.property('size', req.files[1].buffer.length)
 
-    const cpuProfile = decode(gunzipSync(req.files[0].buffer))
-    const heapProfile = decode(gunzipSync(req.files[1].buffer))
+    const wallProfile = decode(gunzipSync(req.files[0].buffer))
+    const spaceProfile = decode(gunzipSync(req.files[1].buffer))
 
-    expect(cpuProfile).to.be.a.profile
-    expect(heapProfile).to.be.a.profile
+    expect(wallProfile).to.be.a.profile
+    expect(spaceProfile).to.be.a.profile
 
-    expect(cpuProfile).to.deep.equal(decode(gunzipSync(profiles.cpu)))
-    expect(heapProfile).to.deep.equal(decode(gunzipSync(profiles.heap)))
+    expect(wallProfile).to.deep.equal(decode(gunzipSync(profiles.wall)))
+    expect(spaceProfile).to.deep.equal(decode(gunzipSync(profiles.space)))
   }
 
   beforeEach(() => {
@@ -141,14 +143,14 @@ describe('exporters/agent', () => {
         'runtime-id': 'a1b2c3d4-a1b2-a1b2-a1b2-a1b2c3d4e5f6'
       }
 
-      const [ cpu, heap ] = await Promise.all([
+      const [ wall, space ] = await Promise.all([
         createProfile(['wall', 'microseconds']),
         createProfile(['space', 'bytes'])
       ])
 
       const profiles = {
-        cpu,
-        heap
+        wall,
+        space
       }
 
       await new Promise((resolve, reject) => {
@@ -181,14 +183,14 @@ describe('exporters/agent', () => {
         'runtime-id': 'a1b2c3d4-a1b2-a1b2-a1b2-a1b2c3d4e5f6'
       }
 
-      const [ cpu, heap ] = await Promise.all([
+      const [ wall, space ] = await Promise.all([
         createProfile(['wall', 'microseconds']),
         createProfile(['space', 'bytes'])
       ])
 
       const profiles = {
-        cpu,
-        heap
+        wall,
+        space
       }
 
       let attempt = 0
@@ -239,8 +241,8 @@ describe('exporters/agent', () => {
       this.timeout(10000)
       const expectedLogs = [
         /^Building agent export report: (\n {2}[a-z-_]+(\[\])?: [a-z0-9-TZ:.]+)+$/m,
-        /^Adding cpu profile to agent export:( [0-9a-f]{2})+$/,
-        /^Adding heap profile to agent export:( [0-9a-f]{2})+$/,
+        /^Adding wall profile to agent export:( [0-9a-f]{2})+$/,
+        /^Adding space profile to agent export:( [0-9a-f]{2})+$/,
         /^Submitting profiler agent report attempt #1 to:/i,
         /^Error from the agent: HTTP Error 400$/,
         /^Submitting profiler agent report attempt #2 to:/i,
@@ -272,14 +274,14 @@ describe('exporters/agent', () => {
       const end = new Date()
       const tags = { foo: 'bar' }
 
-      const [ cpu, heap ] = await Promise.all([
+      const [ wall, space ] = await Promise.all([
         createProfile(['wall', 'microseconds']),
         createProfile(['space', 'bytes'])
       ])
 
       const profiles = {
-        cpu,
-        heap
+        wall,
+        space
       }
 
       let tries = 0
@@ -325,14 +327,14 @@ describe('exporters/agent', () => {
       const end = new Date()
       const tags = { foo: 'bar' }
 
-      const [ cpu, heap ] = await Promise.all([
+      const [ wall, space ] = await Promise.all([
         createProfile(['wall', 'microseconds']),
         createProfile(['space', 'bytes'])
       ])
 
       const profiles = {
-        cpu,
-        heap
+        wall,
+        space
       }
 
       await new Promise((resolve, reject) => {
@@ -351,28 +353,28 @@ describe('exporters/agent', () => {
               'format:pprof',
               'foo:bar'
             ])
-            expect(req.body).to.have.deep.property('types', ['cpu', 'heap'])
+            expect(req.body).to.have.deep.property('types', ['wall', 'space'])
             expect(req.body).to.have.property('recording-start', start.toISOString())
             expect(req.body).to.have.property('recording-end', end.toISOString())
 
             expect(req.files[0]).to.have.property('fieldname', 'data[0]')
-            expect(req.files[0]).to.have.property('originalname', 'cpu.pb.gz')
+            expect(req.files[0]).to.have.property('originalname', 'wall.pb.gz')
             expect(req.files[0]).to.have.property('mimetype', 'application/octet-stream')
             expect(req.files[0]).to.have.property('size', req.files[0].buffer.length)
 
             expect(req.files[1]).to.have.property('fieldname', 'data[1]')
-            expect(req.files[1]).to.have.property('originalname', 'heap.pb.gz')
+            expect(req.files[1]).to.have.property('originalname', 'space.pb.gz')
             expect(req.files[1]).to.have.property('mimetype', 'application/octet-stream')
             expect(req.files[1]).to.have.property('size', req.files[1].buffer.length)
 
-            const cpuProfile = decode(gunzipSync(req.files[0].buffer))
-            const heapProfile = decode(gunzipSync(req.files[1].buffer))
+            const wallProfile = decode(gunzipSync(req.files[0].buffer))
+            const spaceProfile = decode(gunzipSync(req.files[1].buffer))
 
-            expect(cpuProfile).to.be.a.profile
-            expect(heapProfile).to.be.a.profile
+            expect(wallProfile).to.be.a.profile
+            expect(spaceProfile).to.be.a.profile
 
-            expect(cpuProfile).to.deep.equal(decode(gunzipSync(profiles.cpu)))
-            expect(heapProfile).to.deep.equal(decode(gunzipSync(profiles.heap)))
+            expect(wallProfile).to.deep.equal(decode(gunzipSync(profiles.wall)))
+            expect(spaceProfile).to.deep.equal(decode(gunzipSync(profiles.space)))
 
             resolve()
           } catch (e) {

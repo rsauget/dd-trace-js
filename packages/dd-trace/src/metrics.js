@@ -2,6 +2,7 @@
 
 // TODO: capture every second and flush every 10 seconds
 
+const { URL, format } = require('url')
 const v8 = require('v8')
 const os = require('os')
 const Client = require('./dogstatsd')
@@ -48,11 +49,23 @@ module.exports = {
       nativeMetrics = null
     }
 
-    client = new Client({
+    const clientConfig = {
       host: config.dogstatsd.hostname,
       port: config.dogstatsd.port,
       tags
-    })
+    }
+
+    if (config.url) {
+      clientConfig.metricsProxyUrl = config.url
+    } else if (config.port) {
+      clientConfig.metricsProxyUrl = new URL(format({
+        protocol: 'http:',
+        hostname: config.hostname || 'localhost',
+        port: config.port
+      }))
+    }
+
+    client = new Client(clientConfig)
 
     time = process.hrtime()
 

@@ -5,7 +5,8 @@ const os = require('os')
 const { AgentExporter } = require('../../src/profiling/exporters/agent')
 const { FileExporter } = require('../../src/profiling/exporters/file')
 const CpuProfiler = require('../../src/profiling/profilers/cpu')
-const HeapProfiler = require('../../src/profiling/profilers/heap')
+const WallProfiler = require('../../src/profiling/profilers/wall')
+const SpaceProfiler = require('../../src/profiling/profilers/space')
 const { ConsoleLogger } = require('../../src/profiling/loggers/console')
 
 describe('config', () => {
@@ -31,8 +32,8 @@ describe('config', () => {
 
     expect(config.logger).to.be.an.instanceof(ConsoleLogger)
     expect(config.exporters[0]).to.be.an.instanceof(AgentExporter)
-    expect(config.profilers[0]).to.be.an.instanceof(CpuProfiler)
-    expect(config.profilers[1]).to.be.an.instanceof(HeapProfiler)
+    expect(config.profilers[0]).to.be.an.instanceof(WallProfiler)
+    expect(config.profilers[1]).to.be.an.instanceof(SpaceProfiler)
   })
 
   it('should support configuration options', () => {
@@ -47,7 +48,7 @@ describe('config', () => {
         error () { }
       },
       exporters: 'agent,file',
-      profilers: 'cpu',
+      profilers: 'wall,cpu-experimental',
       url: 'http://localhost:1234/'
     }
 
@@ -68,8 +69,9 @@ describe('config', () => {
     expect(config.exporters[0]._url.toString()).to.equal(options.url)
     expect(config.exporters[1]).to.be.an.instanceof(FileExporter)
     expect(config.profilers).to.be.an('array')
-    expect(config.profilers.length).to.equal(1)
-    expect(config.profilers[0]).to.be.an.instanceOf(CpuProfiler)
+    expect(config.profilers.length).to.equal(2)
+    expect(config.profilers[0]).to.be.an.instanceOf(WallProfiler)
+    expect(config.profilers[1]).to.be.an.instanceOf(CpuProfiler)
   })
 
   it('should filter out invalid profilers', () => {
@@ -119,5 +121,17 @@ describe('config', () => {
     const config = new Config({ env, service, version, tags })
 
     expect(config.tags).to.include({ env, service, version })
+  })
+
+  it('should support IPv6 hostname', () => {
+    const options = {
+      hostname: '::1'
+    }
+
+    const config = new Config(options)
+    const exporterUrl = config.exporters[0]._url.toString()
+    const expectedUrl = new URL('http://[::1]:8126').toString()
+
+    expect(exporterUrl).to.equal(expectedUrl)
   })
 })

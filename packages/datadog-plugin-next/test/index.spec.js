@@ -6,7 +6,6 @@ const axios = require('axios')
 const getPort = require('get-port')
 const { execSync, spawn } = require('child_process')
 const agent = require('../../dd-trace/test/plugins/agent')
-const plugin = require('../src')
 const { writeFileSync } = require('fs')
 
 describe('Plugin', function () {
@@ -14,7 +13,7 @@ describe('Plugin', function () {
   let port
 
   describe('next', () => {
-    withVersions(plugin, 'next', version => {
+    withVersions('next', 'next', version => {
       const startServer = withConfig => {
         before(async () => {
           port = await getPort()
@@ -36,15 +35,17 @@ describe('Plugin', function () {
             }
           })
 
-          server.on('error', done)
-          server.stderr.on('data', () => {})
-          server.stdout.on('data', () => done())
+          server.once('error', done)
+          server.stdout.once('data', () => done())
+          server.stderr.on('data', chunk => process.stderr.write(chunk))
+          server.stdout.on('data', chunk => process.stdout.write(chunk))
         })
 
-        after(async () => {
+        after(async function () {
+          this.timeout(5000)
           server.kill()
           await axios.get(`http://localhost:${port}/api/hello/world`).catch(() => {})
-          await agent.close()
+          await agent.close({ ritmReset: false })
         })
       }
 
@@ -71,11 +72,16 @@ describe('Plugin', function () {
         })
       })
 
-      after(() => {
-        execSync(`rm ${__dirname}/package.json`)
-        execSync(`rm ${__dirname}/package-lock.json`)
-        execSync(`rm -rf ${__dirname}/node_modules`)
-        execSync(`rm -rf ${__dirname}/.next`)
+      after(function () {
+        this.timeout(5000)
+        const files = [
+          'package.json',
+          'package-lock.json',
+          'node_modules',
+          '.next'
+        ]
+        const paths = files.map(file => `${__dirname}/${file}`)
+        execSync(`rm -rf ${paths.join(' ')}`)
       })
 
       describe('without configuration', () => {
@@ -195,6 +201,44 @@ describe('Plugin', function () {
             axios
               .get(`http://localhost:${port}/missing`)
               .catch(() => {})
+          })
+        })
+
+        describe('for static files', () => {
+          it('should do automatic instrumentation', done => {
+            agent
+              .use(traces => {
+                const spans = traces[0]
+
+                expect(spans[0]).to.have.property('name', 'next.request')
+                expect(spans[0]).to.have.property('service', 'test')
+                expect(spans[0]).to.have.property('type', 'web')
+                expect(spans[0]).to.have.property('resource', 'GET')
+                expect(spans[0].meta).to.have.property('span.kind', 'server')
+                expect(spans[0].meta).to.have.property('http.method', 'GET')
+                expect(spans[0].meta).to.have.property('http.status_code', '200')
+              })
+              .then(done)
+              .catch(done)
+
+            axios
+              .get(`http://localhost:${port}/test.txt`)
+              .catch(done)
+          })
+        })
+
+        describe('when an error happens', () => {
+          it('should not die', done => {
+            agent
+              .use(_traces => { })
+              .then(done)
+              .catch(done)
+
+            axios
+              .get(`http://localhost:${port}/boom`)
+              .catch((response) => {
+                expect(response.statusCode).to.eql(500)
+              })
           })
         })
       })

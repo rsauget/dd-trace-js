@@ -1,13 +1,15 @@
 'use strict'
 
+const net = require('net')
 const uniq = require('lodash.uniq')
 const analyticsSampler = require('../../analytics_sampler')
-const FORMAT_HTTP_HEADERS = require('opentracing').FORMAT_HTTP_HEADERS
+const FORMAT_HTTP_HEADERS = 'http_headers'
 const log = require('../../log')
 const tags = require('../../../../../ext/tags')
 const types = require('../../../../../ext/types')
 const kinds = require('../../../../../ext/kinds')
 const urlFilter = require('./urlfilter')
+const BlockList = require('./ip_blocklist')
 const { incomingHttpRequestEnd } = require('../../appsec/gateway/channels')
 
 const WEB = types.WEB
@@ -23,11 +25,25 @@ const HTTP_STATUS_CODE = tags.HTTP_STATUS_CODE
 const HTTP_ROUTE = tags.HTTP_ROUTE
 const HTTP_REQUEST_HEADERS = tags.HTTP_REQUEST_HEADERS
 const HTTP_RESPONSE_HEADERS = tags.HTTP_RESPONSE_HEADERS
+const HTTP_USERAGENT = tags.HTTP_USERAGENT
+const HTTP_CLIENT_IP = tags.HTTP_CLIENT_IP
 const MANUAL_DROP = tags.MANUAL_DROP
 
 const HTTP2_HEADER_AUTHORITY = ':authority'
 const HTTP2_HEADER_SCHEME = ':scheme'
 const HTTP2_HEADER_PATH = ':path'
+
+const ipHeaderList = [
+  'x-forwarded-for',
+  'x-real-ip',
+  'client-ip',
+  'x-forwarded',
+  'x-cluster-client-ip',
+  'forwarded-for',
+  'forwarded',
+  'via',
+  'true-client-ip'
+]
 
 const contexts = new WeakMap()
 const ends = new WeakMap()
@@ -42,19 +58,49 @@ const web = {
     const hooks = getHooks(config)
     const filter = urlFilter.getFilter(config)
     const middleware = getMiddlewareSetting(config)
+    const queryStringObfuscation = getQsObfuscator(config)
 
     return Object.assign({}, config, {
       headers,
       validateStatus,
       hooks,
       filter,
-      middleware
+      middleware,
+      queryStringObfuscation
     })
+  },
+
+  setFramework (req, name, config) {
+    const context = this.patch(req)
+    const span = context.span
+
+    if (!span) return
+
+    span.context()._name = `${name}.request`
+
+    web.setConfig(req, config)
+  },
+
+  setConfig (req, config) {
+    const context = contexts.get(req)
+    const span = context.span
+
+    context.config = config
+
+    if (!config.filter(req.url)) {
+      span.setTag(MANUAL_DROP, true)
+      span.context()._trace.isRecording = false
+    }
+
+    if (config.service) {
+      span.setTag(SERVICE_NAME, config.service)
+    }
+
+    analyticsSampler.sample(span, config.measured, true)
   },
 
   startSpan (tracer, config, req, res, name) {
     const context = this.patch(req)
-    context.config = config
 
     let span
 
@@ -69,29 +115,20 @@ const web = {
     context.span = span
     context.res = res
 
+    this.setConfig(req, config)
+
     return span
   },
   wrap (req) {
     const context = contexts.get(req)
     if (!context.instrumented) {
       this.wrapEnd(context)
-      this.wrapEvents(context)
       context.instrumented = true
     }
   },
   // Start a span and activate a scope for a request.
   instrument (tracer, config, req, res, name, callback) {
     const span = this.startSpan(tracer, config, req, res, name)
-
-    if (!config.filter(req.url)) {
-      span.setTag(MANUAL_DROP, true)
-    }
-
-    if (config.service) {
-      span.setTag(SERVICE_NAME, config.service)
-    }
-
-    analyticsSampler.sample(span, config.measured, true)
 
     this.wrap(req)
 
@@ -108,6 +145,14 @@ const web = {
     if (typeof path === 'string') {
       contexts.get(req).paths.push(path)
     }
+  },
+
+  setRoute (req, path) {
+    const context = contexts.get(req)
+
+    if (!context) return
+
+    context.paths = [path]
   },
 
   // Remove the current route segment.
@@ -231,8 +276,9 @@ const web = {
     const context = contexts.get(req)
     const span = context.span
     const error = context.error
+    const hasExistingError = span.context()._tags['error'] || span.context()._tags['error.msg']
 
-    if (!context.config.validateStatus(statusCode)) {
+    if (!hasExistingError && !context.config.validateStatus(statusCode)) {
       span.setTag(ERROR, error || true)
     }
   },
@@ -241,7 +287,10 @@ const web = {
   addError (req, error) {
     if (error instanceof Error) {
       const context = contexts.get(req)
-      context.error = context.error || error
+
+      if (context) {
+        context.error = error
+      }
     }
   },
 
@@ -269,6 +318,76 @@ const web = {
     context.span.finish()
     context.finished = true
   },
+
+  finishAll (context) {
+    const { req, res } = context
+
+    for (const beforeEnd of context.beforeEnd) {
+      beforeEnd()
+    }
+
+    web.finishMiddleware(context)
+
+    if (incomingHttpRequestEnd.hasSubscribers) {
+      incomingHttpRequestEnd.publish({ req, res })
+    }
+
+    web.finishSpan(context)
+  },
+
+  obfuscateQs (config, url) {
+    const { queryStringObfuscation } = config
+
+    if (queryStringObfuscation === false) return url
+
+    const i = url.indexOf('?')
+    if (i === -1) return url
+
+    const path = url.slice(0, i)
+    if (queryStringObfuscation === true) return path
+
+    let qs = url.slice(i + 1)
+
+    qs = qs.replace(queryStringObfuscation, '<redacted>')
+
+    return `${path}?${qs}`
+  },
+
+  extractIp (context) {
+    const { req, config } = context
+
+    if (config.clientIpHeaderDisabled) return
+
+    const headers = req.headers
+
+    if (config.clientIpHeader) {
+      const header = headers[config.clientIpHeader]
+      if (!header) return
+
+      return findFirstIp(header)
+    }
+
+    const foundHeaders = []
+
+    for (let i = 0; i < ipHeaderList.length; i++) {
+      if (headers[ipHeaderList[i]]) {
+        foundHeaders.push(ipHeaderList[i])
+      }
+    }
+
+    if (foundHeaders.length === 1) {
+      const header = headers[foundHeaders[0]]
+      const firstIp = findFirstIp(header)
+
+      if (firstIp) return firstIp
+    } else if (foundHeaders.length > 1) {
+      log.error(`Cannot find client IP: multiple IP headers detected ${foundHeaders}`)
+      return
+    }
+
+    return req.socket && req.socket.remoteAddress
+  },
+
   wrapWriteHead (context) {
     const { req, res } = context
     const writeHead = res.writeHead
@@ -289,21 +408,9 @@ const web = {
   },
   wrapRes (context, req, res, end) {
     return function () {
-      for (const beforeEnd of context.beforeEnd) {
-        beforeEnd()
-      }
+      web.finishAll(context)
 
-      web.finishMiddleware(context)
-
-      if (incomingHttpRequestEnd.hasSubscribers) {
-        incomingHttpRequestEnd.publish({ req, res })
-      }
-
-      const returnValue = end.apply(res, arguments)
-
-      web.finishSpan(context)
-
-      return returnValue
+      return end.apply(res, arguments)
     }
   },
   wrapEnd (context) {
@@ -325,12 +432,6 @@ const web = {
         ends.set(this, scope.bind(value, context.span))
       }
     })
-  },
-  wrapEvents (context) {
-    const scope = context.tracer.scope()
-    const res = context.res
-
-    scope.bind(res, context.span)
   }
 }
 
@@ -342,7 +443,8 @@ function addAllowHeaders (req, res, headers) {
     'x-datadog-parent-id',
     'x-datadog-sampled', // Deprecated, but still accept it in case it's sent.
     'x-datadog-sampling-priority',
-    'x-datadog-trace-id'
+    'x-datadog-trace-id',
+    'x-datadog-tags'
   ]
 
   for (const header of contextHeaders) {
@@ -376,14 +478,16 @@ function reactivate (req, fn) {
 }
 
 function addRequestTags (context) {
-  const { req, span } = context
+  const { req, span, config } = context
   const url = extractURL(req)
 
   span.addTags({
-    [HTTP_URL]: url.split('?')[0],
+    [HTTP_URL]: web.obfuscateQs(config, url),
     [HTTP_METHOD]: req.method,
     [SPAN_KIND]: SERVER,
-    [SPAN_TYPE]: WEB
+    [SPAN_TYPE]: WEB,
+    [HTTP_USERAGENT]: req.headers['user-agent'],
+    [HTTP_CLIENT_IP]: web.extractIp(context)
   })
 
   addHeaders(context)
@@ -451,6 +555,51 @@ function getProtocol (req) {
   return 'http'
 }
 
+const privateCIDRs = [
+  '127.0.0.0/8',
+  '10.0.0.0/8',
+  '172.16.0.0/12',
+  '192.168.0.0/16',
+  '169.254.0.0/16',
+  '::1/128',
+  'fec0::/10',
+  'fe80::/10',
+  'fc00::/7',
+  'fd00::/8'
+]
+
+const privateIPMatcher = new BlockList()
+
+for (const cidr of privateCIDRs) {
+  const [ address, prefix ] = cidr.split('/')
+
+  privateIPMatcher.addSubnet(address, parseInt(prefix), net.isIPv6(address) ? 'ipv6' : 'ipv4')
+}
+
+function findFirstIp (str) {
+  let firstPrivateIp
+  const splitted = str.split(',')
+
+  for (let i = 0; i < splitted.length; i++) {
+    const chunk = splitted[i].trim()
+
+    // TODO: strip port and interface data ?
+
+    const type = net.isIP(chunk)
+    if (!type) continue
+
+    if (!privateIPMatcher.check(chunk, type === 6 ? 'ipv6' : 'ipv4')) {
+      // it's public, return it immediately
+      return chunk
+    }
+
+    // it's private, only save the first one found
+    if (!firstPrivateIp) firstPrivateIp = chunk
+  }
+
+  return firstPrivateIp
+}
+
 function getHeadersToRecord (config) {
   if (Array.isArray(config.headers)) {
     try {
@@ -485,6 +634,32 @@ function getMiddlewareSetting (config) {
     return config.middleware
   } else if (config && config.hasOwnProperty('middleware')) {
     log.error('Expected `middleware` to be a boolean.')
+  }
+
+  return true
+}
+
+function getQsObfuscator (config) {
+  const obfuscator = config.queryStringObfuscation
+
+  if (typeof obfuscator === 'boolean') {
+    return obfuscator
+  }
+
+  if (typeof obfuscator === 'string') {
+    if (obfuscator === '') return false // disable obfuscator
+
+    if (obfuscator === '.*') return true // optimize full redact
+
+    try {
+      return new RegExp(obfuscator, 'gi')
+    } catch (err) {
+      log.error(err)
+    }
+  }
+
+  if (config.hasOwnProperty('queryStringObfuscation')) {
+    log.error('Expected `queryStringObfuscation` to be a regex string or boolean.')
   }
 
   return true

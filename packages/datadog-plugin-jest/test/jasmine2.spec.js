@@ -11,12 +11,17 @@ const {
   TEST_TYPE,
   TEST_NAME,
   TEST_SUITE,
+  TEST_SOURCE_FILE,
   TEST_STATUS,
   CI_APP_ORIGIN,
   TEST_FRAMEWORK_VERSION,
   JEST_TEST_RUNNER,
-  ERROR_MESSAGE
+  ERROR_MESSAGE,
+  TEST_CODE_OWNERS,
+  LIBRARY_VERSION
 } = require('../../dd-trace/src/plugins/util/test')
+
+const { version: ddTraceVersion } = require('../../../package.json')
 
 describe('Plugin', () => {
   let jestExecutable
@@ -26,19 +31,18 @@ describe('Plugin', () => {
     testPathIgnorePatterns: ['/node_modules/'],
     coverageReporters: [],
     reporters: [],
-    testRunner: 'jest-jasmine2',
     silent: true,
     cache: false,
     maxWorkers: '50%'
   }
 
-  withVersions('jest', ['jest-jasmine2'], (version, moduleName) => {
+  withVersions('jest', ['jest-jasmine2'], (version) => {
     afterEach(() => {
       const jestTestFile = fs.readdirSync(__dirname).filter(name => name.startsWith('jest-'))
       jestTestFile.forEach((testFile) => {
         delete require.cache[require.resolve(path.join(__dirname, testFile))]
       })
-      return agent.close({ ritmReset: false })
+      return agent.close({ ritmReset: false, wipe: true })
     })
     beforeEach(() => {
       // for http integration tests
@@ -47,6 +51,9 @@ describe('Plugin', () => {
         .reply(200, 'OK')
 
       return agent.load(['jest', 'http'], { service: 'test' }).then(() => {
+        jestCommonOptions.testRunner =
+          require(`../../../versions/jest@${version}`).getPath('jest-jasmine2')
+
         jestExecutable = require(`../../../versions/jest@${version}`).get()
       })
     })
@@ -54,6 +61,11 @@ describe('Plugin', () => {
       this.timeout(60000)
       it('instruments async, sync and integration tests', function (done) {
         const tests = [
+          {
+            name: 'jest-test-suite tracer and active span are available',
+            status: 'pass',
+            extraTags: { 'test.add.stuff': 'stuff' }
+          },
           { name: 'jest-test-suite done', status: 'pass' },
           { name: 'jest-test-suite done fail', status: 'fail' },
           { name: 'jest-test-suite done fail uncaught', status: 'fail' },
@@ -67,7 +79,7 @@ describe('Plugin', () => {
           { name: 'jest-test-suite skips', status: 'skip' },
           { name: 'jest-test-suite skips todo', status: 'skip' }
         ]
-        const assertionPromises = tests.map(({ name, status, error }) => {
+        const assertionPromises = tests.map(({ name, status, error, extraTags }) => {
           return agent.use(trace => {
             const testSpan = trace[0][0]
             expect(testSpan.parent_id.toString()).to.equal('0')
@@ -79,9 +91,15 @@ describe('Plugin', () => {
               [TEST_NAME]: name,
               [TEST_STATUS]: status,
               [TEST_SUITE]: 'packages/datadog-plugin-jest/test/jest-test.js',
+              [TEST_SOURCE_FILE]: 'packages/datadog-plugin-jest/test/jest-test.js',
               [TEST_TYPE]: 'test',
-              [JEST_TEST_RUNNER]: 'jest-jasmine2'
+              [JEST_TEST_RUNNER]: 'jest-jasmine2',
+              [TEST_CODE_OWNERS]: JSON.stringify(['@DataDog/dd-trace-js']), // reads from dd-trace-js
+              [LIBRARY_VERSION]: ddTraceVersion
             })
+            if (extraTags) {
+              expect(testSpan.meta).to.contain(extraTags)
+            }
             if (error) {
               expect(testSpan.meta[ERROR_MESSAGE]).to.include(error)
             }
@@ -96,7 +114,7 @@ describe('Plugin', () => {
             expect(testSpan.service).to.equal('test')
             expect(testSpan.resource).to.equal(`packages/datadog-plugin-jest/test/jest-test.js.${name}`)
             expect(testSpan.meta[TEST_FRAMEWORK_VERSION]).not.to.be.undefined
-          })
+          }, { timeoutMs: 30000 })
         })
 
         Promise.all(assertionPromises).then(() => done()).catch(done)
@@ -130,6 +148,7 @@ describe('Plugin', () => {
               [TEST_NAME]: name,
               [TEST_STATUS]: 'fail',
               [TEST_SUITE]: 'packages/datadog-plugin-jest/test/jest-hook-failure.js',
+              [TEST_SOURCE_FILE]: 'packages/datadog-plugin-jest/test/jest-hook-failure.js',
               [TEST_TYPE]: 'test',
               [JEST_TEST_RUNNER]: 'jest-jasmine2'
             })
@@ -141,7 +160,7 @@ describe('Plugin', () => {
               `packages/datadog-plugin-jest/test/jest-hook-failure.js.${name}`
             )
             expect(testSpan.meta[TEST_FRAMEWORK_VERSION]).not.to.be.undefined
-          })
+          }, { timeoutMs: 30000 })
         })
 
         Promise.all(assertionPromises).then(() => done()).catch(done)
@@ -175,9 +194,10 @@ describe('Plugin', () => {
               [TEST_NAME]: name,
               [TEST_STATUS]: status,
               [TEST_FRAMEWORK]: 'jest',
-              [TEST_SUITE]: 'packages/datadog-plugin-jest/test/jest-focus.js'
+              [TEST_SUITE]: 'packages/datadog-plugin-jest/test/jest-focus.js',
+              [TEST_SOURCE_FILE]: 'packages/datadog-plugin-jest/test/jest-focus.js'
             })
-          })
+          }, { timeoutMs: 30000 })
         })
 
         Promise.all(assertionPromises).then(() => done()).catch(done)

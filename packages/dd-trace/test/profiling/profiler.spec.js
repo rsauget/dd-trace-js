@@ -3,19 +3,22 @@
 const expect = require('chai').expect
 const sinon = require('sinon')
 
-const pprof = require('@datadog/pprof')
+const SpaceProfiler = require('../../src/profiling/profilers/space')
+const WallProfiler = require('../../src/profiling/profilers/wall')
 
 const INTERVAL = 65 * 1000
 
-describe('profiler', () => {
+describe('profiler', function () {
+  this.timeout(10000) // TODO: fix slow tests
+
   let Profiler
   let profiler
-  let cpuProfiler
-  let cpuProfile
-  let cpuProfilePromise
-  let heapProfiler
-  let heapProfile
-  let heapProfilePromise
+  let wallProfiler
+  let wallProfile
+  let wallProfilePromise
+  let spaceProfiler
+  let spaceProfile
+  let spaceProfilePromise
   let clock
   let exporter
   let exporterPromise
@@ -23,11 +26,12 @@ describe('profiler', () => {
   let profilers
   let consoleLogger
   let logger
+  let sourceMapCreate
 
   function waitForExport () {
     return Promise.all([
-      cpuProfilePromise,
-      heapProfilePromise,
+      wallProfilePromise,
+      spaceProfilePromise,
       exporterPromise
     // After all profiles resolve, need to wait another microtask
     // tick until _collect method calls _submit to begin the export.
@@ -47,31 +51,39 @@ describe('profiler', () => {
       error: sinon.spy()
     }
 
-    cpuProfile = {}
-    cpuProfilePromise = Promise.resolve(cpuProfile)
-    cpuProfiler = {
-      type: 'cpu',
+    wallProfile = {}
+    wallProfilePromise = Promise.resolve(wallProfile)
+    wallProfiler = {
+      type: 'wall',
       start: sinon.stub(),
       stop: sinon.stub(),
       profile: sinon.stub().returns('profile'),
-      encode: sinon.stub().returns(cpuProfilePromise)
+      encode: sinon.stub().returns(wallProfilePromise)
     }
 
-    heapProfile = {}
-    heapProfilePromise = Promise.resolve(heapProfile)
-    heapProfiler = {
-      type: 'heap',
+    spaceProfile = {}
+    spaceProfilePromise = Promise.resolve(spaceProfile)
+    spaceProfiler = {
+      type: 'space',
       start: sinon.stub(),
       stop: sinon.stub(),
       profile: sinon.stub().returns('profile'),
-      encode: sinon.stub().returns(heapProfilePromise)
+      encode: sinon.stub().returns(spaceProfilePromise)
     }
 
     logger = consoleLogger
     exporters = [exporter]
-    profilers = [cpuProfiler, heapProfiler]
+    profilers = [wallProfiler, spaceProfiler]
 
-    Profiler = require('../../src/profiling/profiler').Profiler
+    sourceMapCreate = sinon.stub()
+
+    Profiler = proxyquire('../src/profiling/profiler', {
+      '@datadog/pprof': {
+        SourceMapper: {
+          create: sourceMapCreate
+        }
+      }
+    }).Profiler
 
     profiler = new Profiler()
   })
@@ -84,49 +96,82 @@ describe('profiler', () => {
   it('should start the internal time profilers', async () => {
     await profiler._start({ profilers, exporters })
 
-    sinon.assert.calledOnce(cpuProfiler.start)
-    sinon.assert.calledOnce(heapProfiler.start)
+    sinon.assert.calledOnce(wallProfiler.start)
+    sinon.assert.calledOnce(spaceProfiler.start)
   })
 
   it('should start only once', async () => {
     await profiler._start({ profilers, exporters })
     await profiler._start({ profilers, exporters })
 
-    sinon.assert.calledOnce(cpuProfiler.start)
-    sinon.assert.calledOnce(heapProfiler.start)
+    sinon.assert.calledOnce(wallProfiler.start)
+    sinon.assert.calledOnce(spaceProfiler.start)
   })
 
-  it('should allow configuring exporters by string name', async () => {
-    await profiler._start({ exporters: 'agent' })
-    expect(profiler._config.exporters[0].export).to.be.a('function')
+  it('should allow configuring exporters by string or string array', async () => {
+    const checks = [
+      'agent',
+      ['agent']
+    ]
+
+    for (const exporters of checks) {
+      await profiler._start({
+        sourceMap: false,
+        exporters
+      })
+
+      expect(profiler._config.exporters[0].export).to.be.a('function')
+
+      profiler.stop()
+    }
   })
 
-  it('should allow configuring exporters by string array', async () => {
-    await profiler._start({ exporters: ['agent'] })
-    expect(profiler._config.exporters[0].export).to.be.a('function')
+  it('should allow configuring profilers by string or string arrays', async () => {
+    const checks = [
+      ['space', SpaceProfiler],
+      ['wall', WallProfiler],
+      ['space,wall', SpaceProfiler, WallProfiler],
+      ['wall,space', WallProfiler, SpaceProfiler],
+      [['space', 'wall'], SpaceProfiler, WallProfiler],
+      [['wall', 'space'], WallProfiler, SpaceProfiler]
+    ]
+
+    for (const [profilers, ...expected] of checks) {
+      await profiler._start({
+        sourceMap: false,
+        profilers
+      })
+
+      expect(profiler._config.profilers.length).to.equal(expected.length)
+      for (let i = 0; i < expected.length; i++) {
+        expect(profiler._config.profilers[i]).to.be.instanceOf(expected[i])
+      }
+
+      profiler.stop()
+    }
   })
 
   it('should stop the internal profilers', async () => {
     await profiler._start({ profilers, exporters })
     profiler.stop()
 
-    sinon.assert.calledOnce(cpuProfiler.stop)
-    sinon.assert.calledOnce(heapProfiler.stop)
+    sinon.assert.calledOnce(wallProfiler.stop)
+    sinon.assert.calledOnce(spaceProfiler.stop)
   })
 
   it('should stop when starting failed', async () => {
-    cpuProfiler.start.throws()
+    wallProfiler.start.throws()
 
     await profiler._start({ profilers, exporters, logger })
 
-    sinon.assert.calledOnce(cpuProfiler.stop)
-    sinon.assert.calledOnce(heapProfiler.stop)
+    sinon.assert.calledOnce(wallProfiler.stop)
+    sinon.assert.calledOnce(spaceProfiler.stop)
     sinon.assert.calledOnce(consoleLogger.error)
   })
 
   it('should stop when capturing failed', async () => {
     const rejected = Promise.reject(new Error('boom'))
-    cpuProfiler.encode.returns(rejected)
+    wallProfiler.encode.returns(rejected)
 
     await profiler._start({ profilers, exporters, logger })
 
@@ -134,8 +179,8 @@ describe('profiler', () => {
 
     await rejected.catch(() => {})
 
-    sinon.assert.calledOnce(cpuProfiler.stop)
-    sinon.assert.calledOnce(heapProfiler.stop)
+    sinon.assert.calledOnce(wallProfiler.stop)
+    sinon.assert.calledOnce(spaceProfiler.stop)
     sinon.assert.calledOnce(consoleLogger.error)
   })
 
@@ -158,8 +203,8 @@ describe('profiler', () => {
 
     const { profiles, start, end, tags } = exporter.export.args[0][0]
 
-    expect(profiles).to.have.property('cpu', cpuProfile)
-    expect(profiles).to.have.property('heap', heapProfile)
+    expect(profiles).to.have.property('wall', wallProfile)
+    expect(profiles).to.have.property('space', spaceProfile)
     expect(start).to.be.a('date')
     expect(end).to.be.a('date')
     expect(end - start).to.equal(65000)
@@ -169,8 +214,8 @@ describe('profiler', () => {
   it('should not start when disabled', async () => {
     await profiler._start({ profilers, exporters, enabled: false })
 
-    sinon.assert.notCalled(cpuProfiler.start)
-    sinon.assert.notCalled(heapProfiler.start)
+    sinon.assert.notCalled(wallProfiler.start)
+    sinon.assert.notCalled(spaceProfiler.start)
   })
 
   it('should log exporter errors', async () => {
@@ -183,6 +228,32 @@ describe('profiler', () => {
     await waitForExport()
 
     sinon.assert.calledOnce(consoleLogger.error)
+  })
+
+  it('should log encoded profile', async () => {
+    exporter.export.rejects(new Error('boom'))
+
+    await profiler._start({ profilers, exporters, logger })
+
+    clock.tick(INTERVAL)
+
+    await waitForExport()
+
+    const [
+      startWall,
+      startSpace,
+      collectWall,
+      collectSpace,
+      submit
+    ] = consoleLogger.debug.getCalls()
+
+    sinon.assert.calledWithMatch(startWall, 'Started wall profiler')
+    sinon.assert.calledWithMatch(startSpace, 'Started space profiler')
+
+    expect(collectWall.args[0]()).to.match(/^Collected wall profile: /)
+    expect(collectSpace.args[0]()).to.match(/^Collected space profile: /)
+
+    sinon.assert.calledWithMatch(submit, 'Submitted profiles')
   })
 
   it('should skip submit with no profiles', async () => {
@@ -231,10 +302,20 @@ describe('profiler', () => {
   })
 
   it('should pass source mapper to profilers when enabled', async () => {
+    const mapper = {}
+    sourceMapCreate.returns(mapper)
     await profiler._start({ profilers, exporters, sourceMap: true })
 
     const options = profilers[0].start.args[0][0]
     expect(options).to.have.property('mapper')
-      .with.instanceOf(pprof.SourceMapper)
+      .which.equals(mapper)
+  })
+
+  it('should work with a root working dir and source maps on', async () => {
+    const error = new Error('fail')
+    sourceMapCreate.rejects(error)
+    await profiler._start({ profilers, exporters, logger, sourceMap: true })
+    expect(consoleLogger.error.args[0][0]).to.equal(error)
+    expect(profiler._enabled).to.equal(true)
   })
 })

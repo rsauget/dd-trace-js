@@ -44,11 +44,15 @@ class DatadogTracer extends Tracer {
       const result = this.scope().activate(span, () => fn(span))
 
       if (result && typeof result.then === 'function') {
-        result.then(
-          () => span.finish(),
+        return result.then(
+          value => {
+            span.finish()
+            return value
+          },
           err => {
             addError(span, err)
             span.finish()
+            throw err
           }
         )
       } else {
@@ -105,10 +109,6 @@ class DatadogTracer extends Tracer {
 
   scope () {
     return this._scope
-  }
-
-  currentSpan () {
-    return this.scope().active()
   }
 
   getRumData () {

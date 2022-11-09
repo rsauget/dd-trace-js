@@ -9,9 +9,14 @@ const SAMPLING_PRIORITY_KEY = constants.SAMPLING_PRIORITY_KEY
 const SAMPLING_RULE_DECISION = constants.SAMPLING_RULE_DECISION
 const SAMPLING_LIMIT_DECISION = constants.SAMPLING_LIMIT_DECISION
 const SAMPLING_AGENT_DECISION = constants.SAMPLING_AGENT_DECISION
+const SPAN_SAMPLING_MECHANISM = constants.SPAN_SAMPLING_MECHANISM
+const SPAN_SAMPLING_RULE_RATE = constants.SPAN_SAMPLING_RULE_RATE
+const SPAN_SAMPLING_MAX_PER_SECOND = constants.SPAN_SAMPLING_MAX_PER_SECOND
+const SAMPLING_MECHANISM_SPAN = constants.SAMPLING_MECHANISM_SPAN
 const MEASURED = tags.MEASURED
 const ORIGIN_KEY = constants.ORIGIN_KEY
 const HOSTNAME_KEY = constants.HOSTNAME_KEY
+const TOP_LEVEL_KEY = constants.TOP_LEVEL_KEY
 
 const map = {
   'service.name': 'service',
@@ -22,7 +27,6 @@ const map = {
 function format (span) {
   const formatted = formatSpan(span)
 
-  extractError(formatted, span)
   extractRootTags(formatted, span)
   extractChunkTags(formatted, span)
   extractTags(formatted, span)
@@ -45,6 +49,13 @@ function formatSpan (span) {
     start: Math.round(span._startTime * 1e6),
     duration: Math.round(span._duration * 1e6)
   }
+}
+
+function setSingleSpanIngestionTags (span, options) {
+  if (!options) return
+  addTag({}, span.metrics, SPAN_SAMPLING_MECHANISM, SAMPLING_MECHANISM_SPAN)
+  addTag({}, span.metrics, SPAN_SAMPLING_RULE_RATE, options.sampleRate)
+  addTag({}, span.metrics, SPAN_SAMPLING_MAX_PER_SECOND, options.maxPerSecond)
 }
 
 function extractTags (trace, span) {
@@ -74,8 +85,8 @@ function extractTags (trace, span) {
         addTag({}, trace.metrics, tag, tags[tag] === undefined || tags[tag] ? 1 : 0)
         break
       case 'error':
-        if (tags[tag] && (context._name !== 'fs.operation')) {
-          trace.error = 1
+        if (context._name !== 'fs.operation') {
+          extractError(trace, tags[tag])
         }
         break
       case 'error.type':
@@ -84,6 +95,8 @@ function extractTags (trace, span) {
         // HACK: remove when implemented in the backend
         if (context._name !== 'fs.operation') {
           trace.error = 1
+        } else {
+          break
         }
       default: // eslint-disable-line no-fallthrough
         addTag(trace.meta, trace.metrics, tag, tags[tag])
@@ -93,6 +106,8 @@ function extractTags (trace, span) {
   if (span.tracer()._service === tags['service.name']) {
     addTag(trace.meta, trace.metrics, 'language', 'javascript')
   }
+
+  setSingleSpanIngestionTags(trace, context._sampling.spanSampling)
 
   addTag(trace.meta, trace.metrics, SAMPLING_PRIORITY_KEY, priority)
   addTag(trace.meta, trace.metrics, ORIGIN_KEY, origin)
@@ -109,6 +124,7 @@ function extractRootTags (trace, span) {
   addTag({}, trace.metrics, SAMPLING_RULE_DECISION, context._trace[SAMPLING_RULE_DECISION])
   addTag({}, trace.metrics, SAMPLING_LIMIT_DECISION, context._trace[SAMPLING_LIMIT_DECISION])
   addTag({}, trace.metrics, SAMPLING_AGENT_DECISION, context._trace[SAMPLING_AGENT_DECISION])
+  addTag({}, trace.metrics, TOP_LEVEL_KEY, 1)
 }
 
 function extractChunkTags (trace, span) {
@@ -122,8 +138,11 @@ function extractChunkTags (trace, span) {
   }
 }
 
-function extractError (trace, span) {
-  const error = span.context()._tags['error']
+function extractError (trace, error) {
+  if (!error) return
+
+  trace.error = 1
+
   if (isError(error)) {
     addTag(trace.meta, trace.metrics, 'error.msg', error.message)
     addTag(trace.meta, trace.metrics, 'error.type', error.name)

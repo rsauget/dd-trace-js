@@ -2,7 +2,6 @@
 
 const agent = require('../../dd-trace/test/plugins/agent')
 const { expectSomeSpan, withDefaults } = require('../../dd-trace/test/plugins/helpers')
-const plugin = require('../src')
 const id = require('../../dd-trace/src/id')
 
 // The roundtrip to the pubsub emulator takes time. Sometimes a *long* time.
@@ -15,15 +14,15 @@ describe('Plugin', () => {
     this.timeout(TIMEOUT)
 
     before(() => {
-      process.env.PUBSUB_EMULATOR_HOST = 'localhost:8085'
+      process.env.PUBSUB_EMULATOR_HOST = 'localhost:8081'
     })
     after(() => {
       delete process.env.PUBSUB_EMULATOR_HOST
     })
     afterEach(() => {
-      return agent.close()
+      return agent.close({ ritmReset: false })
     })
-    withVersions(plugin, '@google-cloud/pubsub', version => {
+    withVersions('google-cloud-pubsub', '@google-cloud/pubsub', version => {
       let pubsub
       let project
       let topicName
@@ -88,6 +87,7 @@ describe('Plugin', () => {
           it('should be instrumented', async () => {
             const expectedSpanPromise = expectSpanWithDefaults({
               meta: {
+                'pubsub.topic': resource,
                 'pubsub.method': 'publish',
                 'span.kind': 'producer'
               }
@@ -138,7 +138,8 @@ describe('Plugin', () => {
               name: 'pubsub.receive',
               type: 'worker',
               meta: {
-                'span.kind': 'consumer'
+                'span.kind': 'consumer',
+                'pubsub.topic': resource
               },
               metrics: {
                 'pubsub.ack': 1
@@ -253,7 +254,6 @@ describe('Plugin', () => {
           error: 0,
           meta: {
             component: '@google-cloud/pubsub',
-            'pubsub.topic': resource,
             'gcloud.project_id': project
           }
         }, expected)

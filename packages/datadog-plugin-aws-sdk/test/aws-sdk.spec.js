@@ -1,7 +1,6 @@
 'use strict'
 
 const agent = require('../../dd-trace/test/plugins/agent')
-const plugin = require('../src')
 const { setup, sort } = require('./spec_helpers')
 const semver = require('semver')
 
@@ -11,7 +10,7 @@ describe('Plugin', () => {
   describe('aws-sdk', function () {
     setup()
 
-    withVersions(plugin, 'aws-sdk', version => {
+    withVersions('aws-sdk', 'aws-sdk', version => {
       let AWS
       let s3
       let sqs
@@ -19,18 +18,20 @@ describe('Plugin', () => {
 
       describe('without configuration', () => {
         before(() => {
+          return agent.load(['aws-sdk', 'http'], [{}, { server: false }])
+        })
+
+        before(() => {
           AWS = require(`../../../versions/aws-sdk@${version}`).get()
 
-          const endpoint = new AWS.Endpoint('http://localhost:4572')
+          const endpoint = new AWS.Endpoint('http://127.0.0.1:4572')
 
           s3 = new AWS.S3({ endpoint, s3ForcePathStyle: true })
           tracer = require('../../dd-trace')
-
-          return agent.load('aws-sdk')
         })
 
         after(() => {
-          return agent.close()
+          return agent.close({ ritmReset: false, wipe: true })
         })
 
         it('should instrument service methods with a callback', (done) => {
@@ -128,31 +129,31 @@ describe('Plugin', () => {
 
       describe('with configuration', () => {
         before(() => {
-          AWS = require(`../../../versions/aws-sdk@${version}`).get()
-
-          const endpoint = new AWS.Endpoint('http://localhost:5000')
-
-          s3 = new AWS.S3({ endpoint, s3ForcePathStyle: true })
-          tracer = require('../../dd-trace')
-
-          return agent.load('aws-sdk', {
+          return agent.load(['aws-sdk', 'http'], [{
             service: 'test',
             splitByAwsService: false,
             hooks: {
               request (span, response) {
                 span.setTag('hook.operation', response.request.operation)
-                if (response.error.code === 'NetworkingError' || response.error.code === 'UnknownEndpoint') {
-                  span.addTags({
-                    'error': 0
-                  })
-                }
+                span.addTags({
+                  'error': 0
+                })
               }
             }
-          })
+          }, { server: false }])
+        })
+
+        before(() => {
+          AWS = require(`../../../versions/aws-sdk@${version}`).get()
+
+          const endpoint = new AWS.Endpoint('http://127.0.0.1:5000')
+
+          s3 = new AWS.S3({ endpoint, s3ForcePathStyle: true })
+          tracer = require('../../dd-trace')
         })
 
         after(() => {
-          return agent.close()
+          return agent.close({ ritmReset: false })
         })
 
         it('should be configured', (done) => {
@@ -175,20 +176,22 @@ describe('Plugin', () => {
 
       describe('with service configuration', () => {
         before(() => {
-          AWS = require(`../../../versions/aws-sdk@${version}`).get()
-
-          s3 = new AWS.S3({ endpoint: new AWS.Endpoint('http://localhost:4572'), s3ForcePathStyle: true })
-          sqs = new AWS.SQS({ endpoint: new AWS.Endpoint('http://localhost:4576') })
-          tracer = require('../../dd-trace')
-
-          return agent.load('aws-sdk', {
+          return agent.load(['aws-sdk', 'http'], [{
             service: 'test',
             s3: false
-          })
+          }, { server: false }])
+        })
+
+        before(() => {
+          AWS = require(`../../../versions/aws-sdk@${version}`).get()
+
+          s3 = new AWS.S3({ endpoint: new AWS.Endpoint('http://127.0.0.1:4572'), s3ForcePathStyle: true })
+          sqs = new AWS.SQS({ endpoint: new AWS.Endpoint('http://127.0.0.1:4576') })
+          tracer = require('../../dd-trace')
         })
 
         after(() => {
-          return agent.close()
+          return agent.close({ ritmReset: false })
         })
 
         it('should allow disabling a specific service', (done) => {

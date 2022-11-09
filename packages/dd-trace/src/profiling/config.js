@@ -2,17 +2,19 @@
 
 const coalesce = require('koalas')
 const os = require('os')
-const { URL } = require('url')
+const { URL, format } = require('url')
 const { AgentExporter } = require('./exporters/agent')
 const { FileExporter } = require('./exporters/file')
 const { ConsoleLogger } = require('./loggers/console')
 const CpuProfiler = require('./profilers/cpu')
-const HeapProfiler = require('./profilers/heap')
+const WallProfiler = require('./profilers/wall')
+const SpaceProfiler = require('./profilers/space')
 const { tagger } = require('./tagger')
 
 const {
   DD_PROFILING_ENABLED,
   DD_PROFILING_PROFILERS,
+  DD_PROFILING_ENDPOINT_COLLECTION_ENABLED,
   DD_ENV,
   DD_TAGS,
   DD_SERVICE,
@@ -37,6 +39,8 @@ class Config {
       DD_PROFILING_UPLOAD_TIMEOUT, 60 * 1000)
     const sourceMap = coalesce(options.sourceMap,
       DD_PROFILING_SOURCE_MAP, true)
+    const endpointCollection = coalesce(options.endpointCollection,
+      DD_PROFILING_ENDPOINT_COLLECTION_ENABLED, false)
 
     this.enabled = String(enabled) !== 'false'
     this.service = service
@@ -53,19 +57,23 @@ class Config {
     this.flushInterval = flushInterval
     this.uploadTimeout = uploadTimeout
     this.sourceMap = sourceMap
+    this.endpointCollection = endpointCollection
 
-    const hostname = coalesce(options.hostname, DD_AGENT_HOST, 'localhost')
-    const port = coalesce(options.port, DD_TRACE_AGENT_PORT, 8126)
-    this.url = new URL(coalesce(options.url, DD_TRACE_AGENT_URL,
-      `http://${hostname || 'localhost'}:${port || 8126}`))
+    const hostname = coalesce(options.hostname, DD_AGENT_HOST) || 'localhost'
+    const port = coalesce(options.port, DD_TRACE_AGENT_PORT) || 8126
+    this.url = new URL(coalesce(options.url, DD_TRACE_AGENT_URL, format({
+      protocol: 'http:',
+      hostname,
+      port
+    })))
 
     this.exporters = ensureExporters(options.exporters || [
       new AgentExporter(this)
     ], this)
 
     const profilers = coalesce(options.profilers, DD_PROFILING_PROFILERS, [
-      new CpuProfiler(),
-      new HeapProfiler()
+      new WallProfiler(this),
+      new SpaceProfiler(this)
     ])
 
     this.profilers = ensureProfilers(profilers, this)
@@ -101,9 +109,12 @@ function ensureExporters (exporters, options) {
 function getProfiler (name, options) {
   switch (name) {
     case 'cpu':
+    case 'wall':
+      return new WallProfiler(options)
+    case 'space':
+      return new SpaceProfiler(options)
+    case 'cpu-experimental':
       return new CpuProfiler(options)
-    case 'heap':
-      return new HeapProfiler(options)
     default:
       options.logger.error(`Unknown profiler "${name}"`)
   }

@@ -31,9 +31,10 @@ class HttpClientPlugin extends Plugin {
       const host = options.port ? `${hostname}:${options.port}` : hostname
       const path = options.path ? options.path.split(/[?#]/)[0] : '/'
       const uri = `${protocol}//${host}${path}`
+      const allowed = this.config.filter(uri)
 
       const method = (options.method || 'GET').toUpperCase()
-      const childOf = store ? store.span : store
+      const childOf = store && allowed ? store.span : null
       const span = this.tracer.startSpan('http.request', {
         childOf,
         tags: {
@@ -46,6 +47,11 @@ class HttpClientPlugin extends Plugin {
         }
       })
 
+      // TODO: Figure out a better way to do this for any span.
+      if (!allowed) {
+        span._spanContext._trace.record = false
+      }
+
       if (!(hasAmazonSignature(options) || !this.config.propagationFilter(uri))) {
         this.tracer.inject(span, HTTP_HEADERS, options.headers)
       }
@@ -54,9 +60,7 @@ class HttpClientPlugin extends Plugin {
       this.enter(span, store)
     })
 
-    this.addSub('apm:http:client:request:end', this.exit.bind(this))
-
-    this.addSub('apm:http:client:request:async-end', ({ req, res }) => {
+    this.addSub('apm:http:client:request:finish', ({ req, res }) => {
       const span = storage.getStore().span
       if (res) {
         span.setTag(HTTP_STATUS_CODE, res.statusCode)
@@ -66,8 +70,6 @@ class HttpClientPlugin extends Plugin {
         }
 
         addResponseHeaders(res, span, this.config)
-      } else {
-        span.setTag('error', 1)
       }
 
       addRequestHeaders(req, span, this.config)
@@ -86,11 +88,16 @@ class HttpClientPlugin extends Plugin {
 
 function errorHandler (err) {
   const span = storage.getStore().span
-  span.addTags({
-    'error.type': err.name,
-    'error.msg': err.message,
-    'error.stack': err.stack
-  })
+
+  if (err) {
+    span.addTags({
+      'error.type': err.name,
+      'error.msg': err.message,
+      'error.stack': err.stack
+    })
+  } else {
+    span.setTag('error', 1)
+  }
 }
 
 function addResponseHeaders (res, span, config) {
@@ -115,12 +122,14 @@ function addRequestHeaders (req, span, config) {
 
 function normalizeClientConfig (config) {
   const validateStatus = getStatusValidator(config)
+  const filter = getFilter(config)
   const propagationFilter = getFilter({ blocklist: config.propagationBlocklist })
   const headers = getHeaders(config)
   const hooks = getHooks(config)
 
   return Object.assign({}, config, {
     validateStatus,
+    filter,
     propagationFilter,
     headers,
     hooks
@@ -189,7 +198,7 @@ function getServiceName (tracer, config, options) {
     return config.service
   }
 
-  return `${tracer._service}-http-client`
+  return tracer._service
 }
 
 function getHost (options) {

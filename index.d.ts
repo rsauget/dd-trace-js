@@ -176,7 +176,7 @@ export declare interface SamplingRule {
   /**
    * Sampling rate for this rule.
    */
-  sampleRate: Number
+  sampleRate: number
 
   /**
    * Service on which to apply this rule. The rule will apply to all services if not provided.
@@ -187,6 +187,31 @@ export declare interface SamplingRule {
    * Operation name on which to apply this rule. The rule will apply to all operation names if not provided.
    */
   name?: string | RegExp
+}
+
+/**
+ * Span sampling rules to ingest single spans where the enclosing trace is dropped
+ */
+export declare interface SpanSamplingRule {
+  /**
+   * Sampling rate for this rule. Will default to 1.0 (always) if not provided.
+   */
+  sampleRate?: number
+
+  /**
+   * Maximum number of spans matching a span sampling rule to be allowed per second.
+   */
+  maxPerSecond?: number
+
+  /**
+   * Service name or pattern on which to apply this rule. The rule will apply to all services if not provided.
+   */
+  service?: string
+
+  /**
+   * Operation name or pattern on which to apply this rule. The rule will apply to all operation names if not provided.
+   */
+  name?: string
 }
 
 /**
@@ -268,6 +293,28 @@ export declare interface TracerOptions {
   sampleRate?: number;
 
   /**
+   * Global rate limit that is applied on the global sample rate and all rules,
+   * and controls the ingestion rate limit between the agent and the backend.
+   * Defaults to deferring the decision to the agent.
+   */
+  rateLimit?: number,
+
+  /**
+   * Sampling rules to apply to priority samplin. Each rule is a JSON,
+   * consisting of `service` and `name`, which are regexes to match against
+   * a trace's `service` and `name`, and a corresponding `sampleRate`. If not
+   * specified, will defer to global sampling rate for all spans.
+   * @default []
+   */
+  samplingRules?: SamplingRule[]
+
+  /**
+   * Span sampling rules that take effect when the enclosing trace is dropped, to ingest single spans
+   * @default []
+   */
+  spanSamplingRules?: SpanSamplingRule[]
+
+  /**
    * Interval in milliseconds at which the tracer will submit traces to the agent.
    * @default 2000
    */
@@ -298,7 +345,10 @@ export declare interface TracerOptions {
   protocolVersion?: string
 
   /**
-   * Configuration of the ingestion between the agent and the backend.
+   * Deprecated in favor of the global versions of the variables provided under this option
+   *
+   * @deprecated
+   * @hidden
    */
   ingestion?: {
     /**
@@ -307,16 +357,16 @@ export declare interface TracerOptions {
     sampleRate?: number
 
     /**
-     * Controls the ingestion rate limit between the agent and the backend.
+     * Controls the ingestion rate limit between the agent and the backend. Defaults to deferring the decision to the agent.
      */
     rateLimit?: number
   };
 
   /**
-   * Experimental features can be enabled all at once by using true or individually using key / value pairs.
+   * Experimental features can be enabled individually using key / value pairs.
    * @default {}
    */
-  experimental?: boolean | {
+  experimental?: {
     b3?: boolean
     traceparent?: boolean
 
@@ -333,32 +383,36 @@ export declare interface TracerOptions {
     exporter?: 'log' | 'agent'
 
     /**
-     * Configuration of the priority sampler. Supports a global config and rules by span name or service name. The first matching rule is applied, and if no rule matches it falls back to the global config or on the rates provided by the agent if there is no global config.
-     */
-    sampler?: {
-      /**
-       * Sample rate to apply globally when no other rule is matched. Omit to fallback on the dynamic rates returned by the agent instead.
-       */
-      sampleRate?: Number,
-
-      /**
-       * Global rate limit that is applied on the global sample rate and all rules.
-       * @default 100
-       */
-      rateLimit?: Number,
-
-      /**
-       * Sampling rules to apply to priority sampling.
-       * @default []
-       */
-      rules?: SamplingRule[]
-    }
-
-    /**
      * Whether to enable the experimental `getRumData` method.
      * @default false
      */
     enableGetRumData?: boolean
+
+    /**
+     * Configuration of the IAST. Can be a boolean as an alias to `iast.enabled`.
+     */
+    iast?: boolean  | {
+      /**
+       * Whether to enable IAST.
+       * @default false
+       */
+      enabled?: boolean,
+      /**
+       * Controls the percentage of requests that iast will analyze
+       * @default 30
+       */
+      requestSampling?: number,
+      /**
+       * Controls how many request can be analyzing code vulnerabilities at the same time
+       * @default 2
+       */
+      maxConcurrentRequests?: number,
+      /**
+       * Controls how many code vulnerabilities can be detected in the same request
+       * @default 2
+       */
+      maxContextOperations?: number
+    }
   };
 
   /**
@@ -428,7 +482,23 @@ export declare interface TracerOptions {
      * Controls the maximum amount of traces sampled by AppSec attacks, per second.
      * @default 100
      */
-    rateLimit?: number
+    rateLimit?: number,
+
+    /**
+     * Controls the maximum amount of time in microseconds the WAF is allowed to run synchronously for.
+     * @default 5000
+     */
+    wafTimeout?: number,
+
+    /**
+     * Specifies a regex that will redact sensitive data by its key in attack reports.
+     */
+    obfuscatorKeyRegex?: string,
+
+    /**
+     * Specifies a regex that will redact sensitive data by its value in attack reports.
+     */
+    obfuscatorValueRegex?: string
   };
 }
 
@@ -476,15 +546,6 @@ export declare interface TracerOptions {
 }
 
 /** @hidden */
-interface EventEmitter {
-  emit(eventName: string | symbol, ...args: any[]): any;
-  on?(eventName: string | symbol, listener: (...args: any[]) => any): any;
-  off?(eventName: string | symbol, listener: (...args: any[]) => any): any;
-  addListener?(eventName: string | symbol, listener: (...args: any[]) => any): any;
-  removeListener?(eventName: string | symbol, listener: (...args: any[]) => any): any;
-}
-
-/** @hidden */
 declare type anyObject = {
   [key: string]: any;
 };
@@ -521,14 +582,13 @@ export declare interface Scope {
   /**
    * Binds a target to the provided span, or the active span if omitted.
    *
-   * @param {Function|Promise|EventEmitter} target Target that will have the span activated on its scope.
+   * @param {Function|Promise} target Target that will have the span activated on its scope.
    * @param {Span} [span=scope.active()] The span to activate.
    * @returns The bound target.
    */
   bind<T extends (...args: any[]) => void>(fn: T, span?: Span | null): T;
   bind<V, T extends (...args: any[]) => V>(fn: T, span?: Span | null): T;
   bind<T>(fn: Promise<T>, span?: Span | null): Promise<T>;
-  bind(emitter: EventEmitter, span?: Span | null): EventEmitter;
 }
 
 /** @hidden */
@@ -546,7 +606,6 @@ interface Plugins {
   "elasticsearch": plugins.elasticsearch;
   "express": plugins.express;
   "fastify": plugins.fastify;
-  "fs": plugins.fs;
   "generic-pool": plugins.generic_pool;
   "google-cloud-pubsub": plugins.google_cloud_pubsub;
   "graphql": plugins.graphql;
@@ -559,7 +618,7 @@ interface Plugins {
   "kafkajs": plugins.kafkajs
   "knex": plugins.knex;
   "koa": plugins.koa;
-  "limitd-client": plugins.limitd_client;
+  "mariadb": plugins.mariadb;
   "memcached": plugins.memcached;
   "microgateway-core": plugins.microgateway_core;
   "mocha": plugins.mocha;
@@ -570,6 +629,7 @@ interface Plugins {
   "mysql2": plugins.mysql2;
   "net": plugins.net;
   "next": plugins.next;
+  "opensearch": plugins.opensearch;
   "oracledb": plugins.oracledb;
   "paperplane": plugins.paperplane;
   "pg": plugins.pg;
@@ -702,7 +762,7 @@ declare namespace plugins {
      * status code as its only parameter and return `true` for success or `false`
      * for errors.
      *
-     * @default code => code < 400
+     * @default code => code < 400 || code >= 500
      */
     validateStatus?: (code: number) => boolean;
 
@@ -736,7 +796,7 @@ declare namespace plugins {
      * status code as its only parameter and return `true` for success or `false`
      * for errors.
      *
-     * @default code => code < 400
+     * @default code => code < 400 || code >= 500
      */
     validateStatus?: (code: number) => boolean;
   }
@@ -887,12 +947,6 @@ declare namespace plugins {
    * [fastify](https://www.fastify.io/) module.
    */
   interface fastify extends HttpServer {}
-
-  /**
-   * This plugin automatically instruments the
-   * [fs](https://nodejs.org/api/fs.html) module.
-   */
-  interface fs extends Instrumentation {}
 
   /**
    * This plugin patches the [generic-pool](https://github.com/coopernurse/node-pool)
@@ -1145,9 +1199,9 @@ declare namespace plugins {
 
   /**
    * This plugin automatically instruments the
-   * [limitd-client](https://github.com/limitd/node-client) module.
+   * [mariadb](https://github.com/mariadb-corporation/mariadb-connector-nodejs) module.
    */
-  interface limitd_client extends Integration {}
+   interface mariadb extends mysql {}
 
   /**
    * This plugin automatically instruments the
@@ -1201,13 +1255,15 @@ declare namespace plugins {
    * This plugin automatically instruments the
    * [mysql](https://github.com/mysqljs/mysql) module.
    */
-  interface mysql extends Instrumentation {}
+  interface mysql extends Instrumentation {
+    service?: string | ((params: any) => string);
+  }
 
   /**
    * This plugin automatically instruments the
-   * [mysql2](https://github.com/brianmario/mysql2) module.
+   * [mysql2](https://github.com/sidorares/node-mysql2) module.
    */
-  interface mysql2 extends Instrumentation {}
+  interface mysql2 extends mysql {}
 
   /**
    * This plugin automatically instruments the
@@ -1230,6 +1286,12 @@ declare namespace plugins {
       request?: (span?: opentracing.Span, req?: IncomingMessage, res?: ServerResponse) => any;
     };
   }
+
+  /**
+   * This plugin automatically instruments the
+   * [opensearch](https://github.com/opensearch-project/opensearch-js) module.
+   */
+  interface opensearch extends elasticsearch {}
 
   /**
    * This plugin automatically instruments the

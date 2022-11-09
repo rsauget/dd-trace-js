@@ -1,131 +1,48 @@
 'use strict'
 
-const analyticsSampler = require('../../dd-trace/src/analytics_sampler')
+const DatabasePlugin = require('../../dd-trace/src/plugins/database')
+const log = require('../../dd-trace/src/log')
 
-const connectionAttributes = new WeakMap()
-const poolAttributes = new WeakMap()
+class OracledbPlugin extends DatabasePlugin {
+  static get name () { return 'oracledb' }
+  static get system () { return 'oracle' }
 
-function createWrapExecute (tracer, config) {
-  return function wrapExecute (execute) {
-    return function executeWithTrace (dbQuery, ...args) {
-      const connAttrs = connectionAttributes.get(this)
-      const service = getServiceName(tracer, config, connAttrs)
-      const connectStringObj = new URL('http://' + connAttrs.connectString)
-      const tags = {
-        'span.kind': 'client',
-        'span.type': 'sql',
-        'sql.query': dbQuery,
-        'db.instance': connectStringObj.pathname.substring(1),
-        'db.hostname': connectStringObj.hostname,
-        'db.user': config.user,
-        'db.port': connectStringObj.port,
-        'resource.name': dbQuery,
-        'service.name': service
+  start ({ query, connAttrs }) {
+    const service = getServiceName(this.config, connAttrs)
+    const url = getUrl(connAttrs.connectString)
+
+    this.startSpan('oracle.query', {
+      service,
+      resource: query,
+      type: 'sql',
+      kind: 'client',
+      meta: {
+        'sql.query': query,
+        'db.user': this.config.user,
+        'db.instance': url.pathname && url.pathname.substring(1),
+        'db.hostname': url.hostname,
+        'db.port': url.port
       }
-
-      return tracer.wrap('oracle.query', { tags }, function (...args) {
-        const span = tracer.scope().active()
-
-        analyticsSampler.sample(span, config.measured)
-
-        return execute.apply(this, args)
-      }).apply(this, arguments)
-    }
+    })
   }
 }
 
-function createWrapGetConnection (tracer, config) {
-  return function wrapGetConnection (getConnection) {
-    return function getConnectionWithTrace (connAttrs, callback) {
-      if (callback) {
-        arguments[1] = (err, connection) => {
-          if (connection) {
-            connectionAttributes.set(connection, connAttrs)
-          }
-          callback(err, connection)
-        }
-
-        getConnection.apply(this, arguments)
-      } else {
-        return getConnection.apply(this, arguments).then((connection) => {
-          connectionAttributes.set(connection, connAttrs)
-          return connection
-        })
-      }
-    }
-  }
-}
-
-function createWrapCreatePool (tracer, config) {
-  return function wrapCreatePool (createPool) {
-    return function createPoolWithTrace (poolAttrs, callback) {
-      if (callback) {
-        arguments[1] = (err, pool) => {
-          if (pool) {
-            poolAttributes.set(pool, poolAttrs)
-          }
-          callback(err, pool)
-        }
-
-        createPool.apply(this, arguments)
-      } else {
-        return createPool.apply(this, arguments).then((pool) => {
-          poolAttributes.set(pool, poolAttrs)
-          return pool
-        })
-      }
-    }
-  }
-}
-
-function createWrapPoolGetConnection (tracer, config) {
-  return function wrapPoolGetConnection (getConnection) {
-    return function poolGetConnectionWithTrace () {
-      let callback
-      if (typeof arguments[arguments.length - 1] === 'function') {
-        callback = arguments[arguments.length - 1]
-      }
-      if (callback) {
-        arguments[arguments.length - 1] = (err, connection) => {
-          if (connection) {
-            connectionAttributes.set(connection, poolAttributes.get(this))
-          }
-          callback(err, connection)
-        }
-        getConnection.apply(this, arguments)
-      } else {
-        return getConnection.apply(this, arguments).then((connection) => {
-          connectionAttributes.set(connection, poolAttributes.get(this))
-          return connection
-        })
-      }
-    }
-  }
-}
-
-function getServiceName (tracer, config, connAttrs) {
+function getServiceName (config, connAttrs) {
   if (typeof config.service === 'function') {
     return config.service(connAttrs)
-  } else if (config.service) {
-    return config.service
-  } else {
-    return `${tracer._service}-oracle`
+  }
+
+  return config.service
+}
+
+// TODO: Avoid creating an error since it's a heavy operation.
+function getUrl (connectString) {
+  try {
+    return new URL(`http://${connectString}`)
+  } catch (e) {
+    log.error(e)
+    return {}
   }
 }
 
-module.exports = {
-  name: 'oracledb',
-  versions: ['5'],
-  patch (oracledb, tracer, config) {
-    this.wrap(oracledb.Connection.prototype, 'execute', createWrapExecute(tracer, config))
-    this.wrap(oracledb, 'getConnection', createWrapGetConnection(tracer, config))
-    this.wrap(oracledb, 'createPool', createWrapCreatePool(tracer, config))
-    this.wrap(oracledb.Pool.prototype, 'getConnection', createWrapPoolGetConnection(tracer, config))
-  },
-  unpatch (oracledb) {
-    this.unwrap(oracledb.Connection.prototype, 'execute')
-    this.unwrap(oracledb, 'getConnection')
-    this.unwrap(oracledb, 'createPool')
-    this.unwrap(oracledb.Pool.prototype, 'getConnection')
-  }
-}
+module.exports = OracledbPlugin

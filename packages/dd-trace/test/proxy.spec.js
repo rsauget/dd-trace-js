@@ -6,9 +6,8 @@ describe('TracerProxy', () => {
   let DatadogTracer
   let NoopTracer
   let tracer
+  let NoopProxy
   let noop
-  let Instrumenter
-  let instrumenter
   let Config
   let config
   let metrics
@@ -16,6 +15,7 @@ describe('TracerProxy', () => {
   let profiler
   let appsec
   let telemetry
+  let iast
 
   beforeEach(() => {
     process.env.DD_TRACE_MOCHA_ENABLED = false
@@ -26,7 +26,6 @@ describe('TracerProxy', () => {
       startSpan: sinon.stub().returns('span'),
       inject: sinon.stub().returns('tracer'),
       extract: sinon.stub().returns('spanContext'),
-      currentSpan: sinon.stub().returns('current'),
       setUrl: sinon.stub()
     }
 
@@ -37,25 +36,15 @@ describe('TracerProxy', () => {
       startSpan: sinon.stub().returns('span'),
       inject: sinon.stub().returns('noop'),
       extract: sinon.stub().returns('spanContext'),
-      currentSpan: sinon.stub().returns('current'),
       setUrl: sinon.stub()
     }
 
     log = {
-      use: sinon.spy(),
-      toggle: sinon.spy(),
       error: sinon.spy()
-    }
-
-    instrumenter = {
-      enable: sinon.spy(),
-      patch: sinon.spy(),
-      use: sinon.spy()
     }
 
     DatadogTracer = sinon.stub().returns(tracer)
     NoopTracer = sinon.stub().returns(noop)
-    Instrumenter = sinon.stub().returns(instrumenter)
 
     config = {
       tracing: true,
@@ -63,7 +52,8 @@ describe('TracerProxy', () => {
       logger: 'logger',
       debug: true,
       profiling: {},
-      appsec: {}
+      appsec: {},
+      iast: {}
     }
     Config = sinon.stub().returns(config)
 
@@ -83,28 +73,27 @@ describe('TracerProxy', () => {
       start: sinon.spy()
     }
 
+    iast = {
+      enable: sinon.spy()
+    }
+
+    NoopProxy = proxyquire('../src/noop/proxy', {
+      './tracer': NoopTracer
+    })
+
     Proxy = proxyquire('../src/proxy', {
       './tracer': DatadogTracer,
-      './noop/tracer': NoopTracer,
+      './noop/proxy': NoopProxy,
       './config': Config,
       './metrics': metrics,
-      './instrumenter': Instrumenter,
       './log': log,
       './profiler': profiler,
       './appsec': appsec,
+      './appsec/iast': iast,
       './telemetry': telemetry
     })
 
     proxy = new Proxy()
-  })
-
-  describe('use', () => {
-    it('should call the underlying instrumenter', () => {
-      const returnValue = proxy.use('a', 'b', 'c')
-
-      expect(instrumenter.use).to.have.been.calledWith('a', 'b', 'c')
-      expect(returnValue).to.equal(proxy)
-    })
   })
 
   describe('uninitialized', () => {
@@ -137,25 +126,6 @@ describe('TracerProxy', () => {
         expect(DatadogTracer).to.not.have.been.called
       })
 
-      it('should support logging', () => {
-        proxy.init()
-
-        expect(log.use).to.have.been.calledWith(config.logger)
-        expect(log.toggle).to.have.been.calledWith(config.debug)
-      })
-
-      it('should set up automatic instrumentation', () => {
-        proxy.init()
-
-        expect(instrumenter.enable).to.have.been.called
-      })
-
-      it('should update the delegate before setting up instrumentation', () => {
-        proxy.init()
-
-        expect(instrumenter.enable).to.have.been.calledAfter(DatadogTracer)
-      })
-
       it('should not capture metrics by default', () => {
         proxy.init()
 
@@ -176,6 +146,22 @@ describe('TracerProxy', () => {
         proxy.init()
 
         expect(appsec.enable).to.have.been.called
+      })
+
+      it('should enable iast when configured', () => {
+        config.iast = { enabled: true }
+
+        proxy.init()
+
+        expect(iast.enable).to.have.been.calledOnce
+      })
+
+      it('should not enable iast when it is not configured', () => {
+        config.iast = {}
+
+        proxy.init()
+
+        expect(iast.enable).not.to.have.been.called
       })
 
       it('should not load the profiler when not configured', () => {
@@ -210,7 +196,6 @@ describe('TracerProxy', () => {
           './noop/tracer': NoopTracer,
           './config': Config,
           './metrics': metrics,
-          './instrumenter': Instrumenter,
           './log': log,
           './profiler': null, // this will cause the import failure error
           './appsec': appsec
@@ -306,15 +291,6 @@ describe('TracerProxy', () => {
       })
     })
 
-    describe('currentSpan', () => {
-      it('should call the underlying NoopTracer', () => {
-        const returnValue = proxy.currentSpan('a', 'b', 'c')
-
-        expect(noop.currentSpan).to.have.been.calledWith('a', 'b', 'c')
-        expect(returnValue).to.equal('current')
-      })
-    })
-
     describe('setUrl', () => {
       it('should call the underlying DatadogTracer', () => {
         const returnValue = proxy.setUrl('http://example.com')
@@ -328,15 +304,6 @@ describe('TracerProxy', () => {
   describe('initialized', () => {
     beforeEach(() => {
       proxy.init()
-    })
-
-    describe('use', () => {
-      it('should call the underlying Instrumenter', () => {
-        const returnValue = proxy.use('a', 'b', 'c')
-
-        expect(instrumenter.use).to.have.been.calledWith('a', 'b', 'c')
-        expect(returnValue).to.equal(proxy)
-      })
     })
 
     describe('trace', () => {
@@ -399,15 +366,6 @@ describe('TracerProxy', () => {
 
         expect(tracer.extract).to.have.been.calledWith('a', 'b', 'c')
         expect(returnValue).to.equal('spanContext')
-      })
-    })
-
-    describe('currentSpan', () => {
-      it('should call the underlying DatadogTracer', () => {
-        const returnValue = proxy.currentSpan('a', 'b', 'c')
-
-        expect(tracer.currentSpan).to.have.been.calledWith('a', 'b', 'c')
-        expect(returnValue).to.equal('current')
       })
     })
 

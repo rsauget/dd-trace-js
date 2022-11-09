@@ -6,6 +6,7 @@ const path = require('path')
 
 describe('Config', () => {
   let Config
+  let log
   let pkg
   let env
   let fs
@@ -18,6 +19,12 @@ describe('Config', () => {
     pkg = {
       name: '',
       version: ''
+    }
+
+    log = {
+      use: sinon.spy(),
+      toggle: sinon.spy(),
+      warn: sinon.spy()
     }
 
     env = process.env
@@ -37,6 +44,7 @@ describe('Config', () => {
 
     Config = proxyquire('../src/config', {
       './pkg': pkg,
+      './log': log,
       fs,
       os
     })
@@ -58,6 +66,9 @@ describe('Config', () => {
     expect(config).to.have.nested.property('dogstatsd.port', '8125')
     expect(config).to.have.property('flushInterval', 2000)
     expect(config).to.have.property('flushMinSpans', 1000)
+    expect(config).to.have.property('queryStringObfuscation').with.length(626)
+    expect(config).to.have.property('clientIpHeaderDisabled', true)
+    expect(config).to.have.property('clientIpHeader', null)
     expect(config).to.have.property('sampleRate', 1)
     expect(config).to.have.property('runtimeMetrics', false)
     expect(config.tags).to.have.property('service', 'node')
@@ -75,6 +86,20 @@ describe('Config', () => {
     const rulePath = path.join(__dirname, '..', 'src', 'appsec', 'recommended.json')
     expect(config).to.have.nested.property('appsec.rules', rulePath)
     expect(config).to.have.nested.property('appsec.rateLimit', 100)
+    expect(config).to.have.nested.property('appsec.wafTimeout', 5e3)
+    expect(config).to.have.nested.property('appsec.obfuscatorKeyRegex').with.length(155)
+    expect(config).to.have.nested.property('appsec.obfuscatorValueRegex').with.length(443)
+    expect(config).to.have.nested.property('iast.enabled', false)
+  })
+
+  it('should support logging', () => {
+    const config = new Config({
+      logger: {},
+      debug: true
+    })
+
+    expect(log.use).to.have.been.calledWith(config.logger)
+    expect(log.toggle).to.have.been.calledWith(config.debug)
   })
 
   it('should initialize from the default service', () => {
@@ -105,12 +130,26 @@ describe('Config', () => {
     process.env.DD_TRACE_AGENT_PROTOCOL_VERSION = '0.5'
     process.env.DD_SERVICE = 'service'
     process.env.DD_VERSION = '1.0.0'
+    process.env.DD_TRACE_OBFUSCATION_QUERY_STRING_REGEXP = '.*'
+    process.env.DD_TRACE_CLIENT_IP_HEADER = 'x-true-client-ip'
     process.env.DD_RUNTIME_METRICS_ENABLED = 'true'
     process.env.DD_TRACE_REPORT_HOSTNAME = 'true'
     process.env.DD_ENV = 'test'
     process.env.DD_TRACE_GLOBAL_TAGS = 'foo:bar,baz:qux'
     process.env.DD_TRACE_SAMPLE_RATE = '0.5'
     process.env.DD_TRACE_RATE_LIMIT = '-1'
+    process.env.DD_TRACE_SAMPLING_RULES = `[
+      {"service":"usersvc","name":"healthcheck","sample_rate":0.0 },
+      {"service":"usersvc","sample_rate":0.5},
+      {"service":"authsvc","sample_rate":1.0},
+      {"sample_rate":0.1}
+    ]`
+    process.env.DD_SPAN_SAMPLING_RULES = `[
+      {"service":"mysql","name":"mysql.query","sample_rate":0.0,"max_per_second":1},
+      {"service":"mysql","sample_rate":0.5},
+      {"service":"mysql","sample_rate":1.0},
+      {"sample_rate":0.1}
+    ]`
     process.env.DD_TRACE_EXPERIMENTAL_B3_ENABLED = 'true'
     process.env.DD_TRACE_EXPERIMENTAL_TRACEPARENT_ENABLED = 'true'
     process.env.DD_TRACE_EXPERIMENTAL_RUNTIME_ID_ENABLED = 'true'
@@ -119,7 +158,14 @@ describe('Config', () => {
     process.env.DD_TRACE_EXPERIMENTAL_INTERNAL_ERRORS_ENABLED = 'true'
     process.env.DD_APPSEC_ENABLED = 'true'
     process.env.DD_APPSEC_RULES = './path/rules.json'
-    process.env.DD_APPSEC_TRACE_RATE_LIMIT = 42
+    process.env.DD_APPSEC_TRACE_RATE_LIMIT = '42'
+    process.env.DD_APPSEC_WAF_TIMEOUT = '42'
+    process.env.DD_APPSEC_OBFUSCATION_PARAMETER_KEY_REGEXP = '.*'
+    process.env.DD_APPSEC_OBFUSCATION_PARAMETER_VALUE_REGEXP = '.*'
+    process.env.DD_IAST_ENABLED = 'true'
+    process.env.DD_IAST_REQUEST_SAMPLING = '40'
+    process.env.DD_IAST_MAX_CONCURRENT_REQUESTS = '3'
+    process.env.DD_IAST_MAX_CONTEXT_OPERATIONS = '4'
 
     const config = new Config()
 
@@ -131,13 +177,31 @@ describe('Config', () => {
     expect(config).to.have.nested.property('dogstatsd.port', '5218')
     expect(config).to.have.property('service', 'service')
     expect(config).to.have.property('version', '1.0.0')
+    expect(config).to.have.property('queryStringObfuscation', '.*')
+    expect(config).to.have.property('clientIpHeaderDisabled', false)
+    expect(config).to.have.property('clientIpHeader', 'x-true-client-ip')
     expect(config).to.have.property('runtimeMetrics', true)
     expect(config).to.have.property('reportHostname', true)
     expect(config).to.have.property('env', 'test')
     expect(config).to.have.property('sampleRate', 0.5)
     expect(config.tags).to.include({ foo: 'bar', baz: 'qux' })
     expect(config.tags).to.include({ service: 'service', 'version': '1.0.0', 'env': 'test' })
-    expect(config).to.have.deep.nested.property('experimental.sampler', { sampleRate: '0.5', rateLimit: '-1' })
+    expect(config).to.have.deep.nested.property('sampler', {
+      sampleRate: '0.5',
+      rateLimit: '-1',
+      rules: [
+        { service: 'usersvc', name: 'healthcheck', sampleRate: 0.0 },
+        { service: 'usersvc', sampleRate: 0.5 },
+        { service: 'authsvc', sampleRate: 1.0 },
+        { sampleRate: 0.1 }
+      ],
+      spanSamplingRules: [
+        { service: 'mysql', name: 'mysql.query', sampleRate: 0.0, maxPerSecond: 1 },
+        { service: 'mysql', sampleRate: 0.5 },
+        { service: 'mysql', sampleRate: 1.0 },
+        { sampleRate: 0.1 }
+      ]
+    })
     expect(config).to.have.nested.property('experimental.b3', true)
     expect(config).to.have.nested.property('experimental.traceparent', true)
     expect(config).to.have.nested.property('experimental.runtimeId', true)
@@ -146,6 +210,13 @@ describe('Config', () => {
     expect(config).to.have.nested.property('appsec.enabled', true)
     expect(config).to.have.nested.property('appsec.rules', './path/rules.json')
     expect(config).to.have.nested.property('appsec.rateLimit', 42)
+    expect(config).to.have.nested.property('appsec.wafTimeout', 42)
+    expect(config).to.have.nested.property('appsec.obfuscatorKeyRegex', '.*')
+    expect(config).to.have.nested.property('appsec.obfuscatorValueRegex', '.*')
+    expect(config).to.have.nested.property('iast.enabled', true)
+    expect(config).to.have.nested.property('iast.requestSampling', 40)
+    expect(config).to.have.nested.property('iast.maxConcurrentRequests', 3)
+    expect(config).to.have.nested.property('iast.maxContextOperations', 4)
   })
 
   it('should read case-insensitive booleans from environment variables', () => {
@@ -204,6 +275,19 @@ describe('Config', () => {
       version: '0.1.0',
       env: 'test',
       sampleRate: 0.5,
+      rateLimit: 1000,
+      samplingRules: [
+        { service: 'usersvc', name: 'healthcheck', sampleRate: 0.0 },
+        { service: 'usersvc', sampleRate: 0.5 },
+        { service: 'authsvc', sampleRate: 1.0 },
+        { sampleRate: 0.1 }
+      ],
+      spanSamplingRules: [
+        { service: 'mysql', name: 'mysql.query', sampleRate: 0.0, maxPerSecond: 1 },
+        { service: 'mysql', sampleRate: 0.5 },
+        { service: 'mysql', sampleRate: 1.0 },
+        { sampleRate: 0.1 }
+      ],
       logger,
       tags,
       flushInterval: 5000,
@@ -218,9 +302,11 @@ describe('Config', () => {
         runtimeId: true,
         exporter: 'log',
         enableGetRumData: true,
-        sampler: {
-          sampleRate: 1,
-          rateLimit: 1000
+        iast: {
+          enabled: true,
+          requestSampling: 50,
+          maxConcurrentRequests: 4,
+          maxContextOperations: 5
         }
       },
       appsec: true
@@ -257,7 +343,26 @@ describe('Config', () => {
     expect(config).to.have.nested.property('experimental.exporter', 'log')
     expect(config).to.have.nested.property('experimental.enableGetRumData', true)
     expect(config).to.have.nested.property('appsec.enabled', true)
-    expect(config).to.have.deep.nested.property('experimental.sampler', { sampleRate: 0.5, rateLimit: 1000 })
+    expect(config).to.have.nested.property('iast.enabled', true)
+    expect(config).to.have.nested.property('iast.requestSampling', 50)
+    expect(config).to.have.nested.property('iast.maxConcurrentRequests', 4)
+    expect(config).to.have.nested.property('iast.maxContextOperations', 5)
+    expect(config).to.have.deep.nested.property('sampler', {
+      sampleRate: 0.5,
+      rateLimit: 1000,
+      rules: [
+        { service: 'usersvc', name: 'healthcheck', sampleRate: 0.0 },
+        { service: 'usersvc', sampleRate: 0.5 },
+        { service: 'authsvc', sampleRate: 1.0 },
+        { sampleRate: 0.1 }
+      ],
+      spanSamplingRules: [
+        { service: 'mysql', name: 'mysql.query', sampleRate: 0.0, maxPerSecond: 1 },
+        { service: 'mysql', sampleRate: 0.5 },
+        { service: 'mysql', sampleRate: 1.0 },
+        { sampleRate: 0.1 }
+      ]
+    })
   })
 
   it('should initialize from the options with url taking precedence', () => {
@@ -329,6 +434,10 @@ describe('Config', () => {
     process.env.DD_APPSEC_ENABLED = 'false'
     process.env.DD_APPSEC_RULES = 'something'
     process.env.DD_APPSEC_TRACE_RATE_LIMIT = 11
+    process.env.DD_APPSEC_WAF_TIMEOUT = 11
+    process.env.DD_APPSEC_OBFUSCATION_PARAMETER_KEY_REGEXP = '^$'
+    process.env.DD_APPSEC_OBFUSCATION_PARAMETER_VALUE_REGEXP = '^$'
+    process.env.DD_IAST_ENABLED = 'false'
 
     const config = new Config({
       protocolVersion: '0.5',
@@ -353,12 +462,18 @@ describe('Config', () => {
         traceparent: false,
         runtimeId: false,
         exporter: 'agent',
-        enableGetRumData: false
+        enableGetRumData: false,
+        iast: {
+          enabled: true
+        }
       },
       appsec: {
         enabled: true,
         rules: './path/rules.json',
-        rateLimit: 42
+        rateLimit: 42,
+        wafTimeout: 42,
+        obfuscatorKeyRegex: '.*',
+        obfuscatorValueRegex: '.*'
       }
     })
 
@@ -385,39 +500,44 @@ describe('Config', () => {
     expect(config).to.have.nested.property('appsec.enabled', true)
     expect(config).to.have.nested.property('appsec.rules', './path/rules.json')
     expect(config).to.have.nested.property('appsec.rateLimit', 42)
+    expect(config).to.have.nested.property('appsec.wafTimeout', 42)
+    expect(config).to.have.nested.property('appsec.obfuscatorKeyRegex', '.*')
+    expect(config).to.have.nested.property('appsec.obfuscatorValueRegex', '.*')
+    expect(config).to.have.nested.property('iast.enabled', true)
+    expect(config).to.have.nested.property('iast.requestSampling', 30)
+    expect(config).to.have.nested.property('iast.maxConcurrentRequests', 2)
+    expect(config).to.have.nested.property('iast.maxContextOperations', 2)
   })
 
   it('should give priority to non-experimental options', () => {
     const config = new Config({
-      ingestion: {
-        sampleRate: 0.5,
-        rateLimit: 500
-      },
       appsec: {
         enabled: true,
         rules: './path/rules.json',
-        rateLimit: 42
+        rateLimit: 42,
+        wafTimeout: 42,
+        obfuscatorKeyRegex: '.*',
+        obfuscatorValueRegex: '.*'
       },
       experimental: {
-        sampler: {
-          sampleRate: 0.1,
-          rateLimit: 100
-        },
         appsec: {
           enabled: false,
           rules: 'something',
-          rateLimit: 11
+          rateLimit: 11,
+          wafTimeout: 11,
+          obfuscatorKeyRegex: '^$',
+          obfuscatorValueRegex: '^$'
         }
       }
     })
 
-    expect(config).to.have.deep.nested.property('experimental.sampler', {
-      sampleRate: 0.5, rateLimit: 500
-    })
     expect(config).to.have.deep.property('appsec', {
       enabled: true,
       rules: './path/rules.json',
-      rateLimit: 42
+      rateLimit: 42,
+      wafTimeout: 42,
+      obfuscatorKeyRegex: '.*',
+      obfuscatorValueRegex: '.*'
     })
   })
 
@@ -519,6 +639,39 @@ describe('Config', () => {
     const config = new Config()
 
     expect(config.tags).to.include({ foo: 'bar', baz: 'qux' })
+  })
+
+  it('should not set DD_TRACE_TELEMETRY_ENABLED if AWS_LAMBDA_FUNCTION_NAME is present', () => {
+    process.env.AWS_LAMBDA_FUNCTION_NAME = 'my-great-lambda-function'
+
+    const config = new Config()
+
+    expect(config.telemetryEnabled).to.be.false
+  })
+
+  it('should ignore invalid iast.requestSampling', () => {
+    const config = new Config({
+      experimental: {
+        iast: {
+          requestSampling: 105
+        }
+      }
+    })
+    expect(config.iast.requestSampling).to.be.equals(30)
+  })
+
+  it('should load span sampling rules from json file', () => {
+    const path = './fixtures/config/span-sampling-rules.json'
+    process.env.DD_SPAN_SAMPLING_RULES_FILE = require.resolve(path)
+
+    const config = new Config()
+
+    expect(config.sampler).to.have.deep.nested.property('spanSamplingRules', [
+      { service: 'mysql', name: 'mysql.query', sampleRate: 0.0, maxPerSecond: 1 },
+      { service: 'mysql', sampleRate: 0.5 },
+      { service: 'mysql', sampleRate: 1.0 },
+      { sampleRate: 0.1 }
+    ])
   })
 
   context('auto configuration w/ unix domain sockets', () => {

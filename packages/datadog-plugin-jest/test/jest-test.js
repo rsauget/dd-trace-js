@@ -1,8 +1,13 @@
 const http = require('http')
+const tracer = require('dd-trace')
 
 describe('jest-test-suite', () => {
-  // eslint-disable-next-line
-  jest.setTimeout(200)
+  it('tracer and active span are available', () => {
+    expect(global._ddtrace).not.toEqual(undefined)
+    const testSpan = tracer.scope().active()
+    expect(testSpan).not.toEqual(null)
+    testSpan.setTag('test.add.stuff', 'stuff')
+  })
   it('done', (done) => {
     setTimeout(() => {
       expect(100).toEqual(100)
@@ -55,6 +60,8 @@ describe('jest-test-suite', () => {
       }, 100)
     )
   })
+  // eslint-disable-next-line
+  jest.setTimeout(200)
   it('timeout', () => {
     return new Promise((resolve) =>
       setTimeout(() => {
@@ -62,7 +69,7 @@ describe('jest-test-suite', () => {
         resolve()
       }, 300)
     )
-  })
+  }, 200)
   it('passes', () => {
     expect(true).toEqual(true)
   })

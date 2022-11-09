@@ -1,10 +1,10 @@
 'use strict'
 
+const { AsyncLocalStorage } = require('async_hooks')
 const axios = require('axios')
 const getPort = require('get-port')
 const semver = require('semver')
 const agent = require('../../dd-trace/test/plugins/agent')
-const plugin = require('../src')
 
 const sort = spans => spans.sort((a, b) => a.start.toString() >= b.start.toString() ? 1 : -1)
 
@@ -14,7 +14,7 @@ describe('Plugin', () => {
   let appListener
 
   describe('koa', () => {
-    withVersions(plugin, 'koa', version => {
+    withVersions('koa', 'koa', version => {
       let port
 
       beforeEach(() => {
@@ -30,8 +30,8 @@ describe('Plugin', () => {
       })
 
       describe('without configuration', () => {
-        before(() => agent.load('koa'))
-        after(() => agent.close())
+        before(() => agent.load(['koa', 'http'], [{}, { client: false }]))
+        after(() => agent.close({ ritmReset: false }))
 
         it('should do automatic instrumentation on 2.x middleware', done => {
           const app = new Koa()
@@ -90,7 +90,7 @@ describe('Plugin', () => {
 
               expect(spans[1]).to.have.property('name', 'koa.middleware')
               expect(spans[1]).to.have.property('service', 'test')
-              expect(spans[1]).to.have.property('resource', 'handle')
+              expect(spans[1]).to.have.property('resource', 'converted')
             })
             .then(done)
             .catch(done)
@@ -210,7 +210,7 @@ describe('Plugin', () => {
           })
         })
 
-        withVersions(plugin, 'koa-route', routerVersion => {
+        withVersions('koa', 'koa-route', routerVersion => {
           let koaRouter
 
           beforeEach(() => {
@@ -245,7 +245,7 @@ describe('Plugin', () => {
           })
         })
 
-        withVersions(plugin, ['koa-router', '@koa/router'], (routerVersion, moduleName) => {
+        withVersions('koa', ['koa-router', '@koa/router'], (routerVersion, moduleName) => {
           let Router
 
           beforeEach(() => {
@@ -285,7 +285,7 @@ describe('Plugin', () => {
             })
           })
 
-          it('should not lose the route if next() is called', done => {
+          it('should not lose the route if next() is called in middleware', done => {
             const app = new Koa()
             const router = new Router()
 
@@ -310,6 +310,93 @@ describe('Plugin', () => {
             appListener = app.listen(port, 'localhost', (e) => {
               axios
                 .get(`http://localhost:${port}/user/123`)
+                .catch(done)
+            })
+          })
+
+          it('should not lose the route if next() is called in a previous middleware', done => {
+            const app = new Koa()
+            const router = new Router()
+
+            router.use((ctx, next) => next())
+            router.get('/user/:id', (ctx, next) => {
+              ctx.body = ''
+            })
+
+            app
+              .use(router.routes())
+              .use(router.allowedMethods())
+
+            agent
+              .use(traces => {
+                const spans = sort(traces[0])
+
+                expect(spans[0]).to.have.property('resource', 'GET /user/:id')
+              })
+              .then(done)
+              .catch(done)
+
+            appListener = app.listen(port, 'localhost', (e) => {
+              axios
+                .get(`http://localhost:${port}/user/123`)
+                .catch(done)
+            })
+          })
+
+          it('should not lose the route with multiple middleware', done => {
+            const app = new Koa()
+            const router = new Router()
+
+            router.get('/user/:id', (ctx, next) => next(), (ctx, next) => {
+              ctx.body = ''
+            })
+
+            app
+              .use(router.routes())
+              .use(router.allowedMethods())
+
+            agent
+              .use(traces => {
+                const spans = sort(traces[0])
+
+                expect(spans[0]).to.have.property('resource', 'GET /user/:id')
+              })
+              .then(done)
+              .catch(done)
+
+            appListener = app.listen(port, 'localhost', (e) => {
+              axios
+                .get(`http://localhost:${port}/user/123`)
+                .catch(done)
+            })
+          })
+
+          it('should not lose the route if next() is called in a previous router', done => {
+            const app = new Koa()
+            const router1 = new Router()
+            const router2 = new Router()
+
+            router2.use(async (ctx, next) => next())
+            router2.get('/plop', (ctx) => {
+              ctx.body = 'bar'
+            })
+
+            router1.use('/public', router2.routes())
+
+            app.use(router1.routes())
+
+            agent
+              .use(traces => {
+                const spans = sort(traces[0])
+
+                expect(spans[0]).to.have.property('resource', 'GET /public/plop')
+              })
+              .then(done)
+              .catch(done)
+
+            appListener = app.listen(port, 'localhost', (e) => {
+              axios
+                .get(`http://localhost:${port}/public/plop`)
                 .catch(done)
             })
           })
@@ -477,7 +564,7 @@ describe('Plugin', () => {
                 expect(spans[1].meta).to.include({
                   'error.type': error.name
                 })
-                expect(spans[0].error).to.equal(1)
+                expect(spans[1].error).to.equal(1)
               })
               .then(done)
               .catch(done)
@@ -489,7 +576,7 @@ describe('Plugin', () => {
             })
           })
 
-          withVersions(plugin, 'koa-websocket', wsVersion => {
+          withVersions('koa', 'koa-websocket', wsVersion => {
             let WebSocket
             let websockify
             let ws
@@ -534,8 +621,8 @@ describe('Plugin', () => {
       })
 
       describe('with configuration', () => {
-        before(() => agent.load('koa', { middleware: false }))
-        after(() => agent.close())
+        before(() => agent.load(['koa', 'http'], [{ middleware: false }, { client: false }]))
+        after(() => agent.close({ ritmReset: false }))
 
         describe('middleware set to false', () => {
           it('should not do automatic instrumentation on 2.x middleware', done => {
@@ -633,7 +720,7 @@ describe('Plugin', () => {
 
             app.use((ctx, next) => {
               span = tracer.scope().active()
-              return tracer.scope().activate(null, () => next())
+              return next()
             })
 
             app.use(ctx => {
@@ -655,7 +742,35 @@ describe('Plugin', () => {
             })
           })
 
-          withVersions(plugin, ['koa-router', '@koa/router'], (routerVersion, moduleName) => {
+          it('should keep user stores untouched', done => {
+            const app = new Koa()
+            const storage = new AsyncLocalStorage()
+            const store = {}
+
+            app.use((ctx, next) => {
+              return storage.run(store, () => next())
+            })
+
+            app.use(ctx => {
+              ctx.body = ''
+
+              try {
+                expect(storage.getStore()).to.equal(store)
+                done()
+              } catch (e) {
+                done(e)
+              }
+            })
+
+            getPort().then(port => {
+              appListener = app.listen(port, 'localhost', () => {
+                axios.get(`http://localhost:${port}/user`)
+                  .catch(done)
+              })
+            })
+          })
+
+          withVersions('koa', ['koa-router', '@koa/router'], (routerVersion, moduleName) => {
             let Router
 
             beforeEach(() => {

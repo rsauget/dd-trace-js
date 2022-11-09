@@ -38,7 +38,10 @@ describe('SpanProcessor', () => {
       sample: sinon.stub()
     }
     config = {
-      flushMinSpans: 3
+      flushMinSpans: 3,
+      stats: {
+        enabled: false
+      }
     }
     format = sinon.stub().returns({ formatted: true })
 
@@ -67,6 +70,15 @@ describe('SpanProcessor', () => {
 
   it('should skip traces with unfinished spans', () => {
     trace.started = [activeSpan, finishedSpan]
+    trace.finished = [finishedSpan]
+    processor.process(finishedSpan)
+
+    expect(exporter.export).not.to.have.been.called
+  })
+
+  it('should skip unrecorded traces', () => {
+    trace.record = false
+    trace.started = [finishedSpan]
     trace.finished = [finishedSpan]
     processor.process(activeSpan)
 

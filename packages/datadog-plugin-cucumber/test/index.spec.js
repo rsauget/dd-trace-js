@@ -14,12 +14,16 @@ const {
   TEST_TYPE,
   TEST_NAME,
   TEST_SUITE,
+  TEST_SOURCE_FILE,
   TEST_STATUS,
   CI_APP_ORIGIN,
   ERROR_MESSAGE,
   TEST_SKIP_REASON,
-  TEST_FRAMEWORK_VERSION
+  TEST_FRAMEWORK_VERSION,
+  LIBRARY_VERSION
 } = require('../../dd-trace/src/plugins/util/test')
+
+const { version: ddTraceVersion } = require('../../../package.json')
 
 const runCucumber = (version, Cucumber, requireName, featureName, testName) => {
   const stdout = new PassThrough()
@@ -85,13 +89,15 @@ describe('Plugin', function () {
               [TEST_NAME]: 'pass scenario',
               [TEST_TYPE]: 'test',
               [TEST_FRAMEWORK]: 'cucumber',
-              [TEST_STATUS]: 'pass'
+              [TEST_STATUS]: 'pass',
+              [LIBRARY_VERSION]: ddTraceVersion
             })
             expect(testSpan.metrics).to.contain({
               [SAMPLING_PRIORITY]: AUTO_KEEP
             })
             expect(testSpan.meta[TEST_FRAMEWORK_VERSION]).not.to.be.undefined
             expect(testSpan.meta[TEST_SUITE].endsWith('simple.feature')).to.equal(true)
+            expect(testSpan.meta[TEST_SOURCE_FILE].endsWith('simple.feature')).to.equal(true)
             expect(testSpan.type).to.equal('test')
             expect(testSpan.name).to.equal('cucumber.test')
             expect(testSpan.resource.endsWith('simple.feature.pass scenario')).to.equal(true)
@@ -147,6 +153,7 @@ describe('Plugin', function () {
               [TEST_STATUS]: 'fail'
             })
             expect(testSpan.meta[TEST_SUITE].endsWith('simple.feature')).to.equal(true)
+            expect(testSpan.meta[TEST_SOURCE_FILE].endsWith('simple.feature')).to.equal(true)
             expect(testSpan.type).to.equal('test')
             expect(testSpan.name).to.equal('cucumber.test')
             expect(testSpan.resource.endsWith('simple.feature.fail scenario')).to.equal(true)
@@ -209,6 +216,7 @@ describe('Plugin', function () {
               [TEST_STATUS]: 'skip'
             })
             expect(testSpan.meta[TEST_SUITE].endsWith('simple.feature')).to.equal(true)
+            expect(testSpan.meta[TEST_SOURCE_FILE].endsWith('simple.feature')).to.equal(true)
             expect(testSpan.type).to.equal('test')
             expect(testSpan.name).to.equal('cucumber.test')
             expect(testSpan.resource.endsWith('simple.feature.skip scenario')).to.equal(true)
@@ -264,6 +272,7 @@ describe('Plugin', function () {
               [TEST_STATUS]: 'skip'
             })
             expect(testSpan.meta[TEST_SUITE].endsWith('simple.feature')).to.equal(true)
+            expect(testSpan.meta[TEST_SOURCE_FILE].endsWith('simple.feature')).to.equal(true)
             expect(testSpan.type).to.equal('test')
             expect(testSpan.name).to.equal('cucumber.test')
             expect(testSpan.resource.endsWith('simple.feature.skip scenario based on tag')).to.equal(true)
@@ -359,6 +368,7 @@ describe('Plugin', function () {
               [TEST_STATUS]: 'pass'
             })
             expect(testSpan.meta[TEST_SUITE].endsWith('simple.feature')).to.equal(true)
+            expect(testSpan.meta[TEST_SOURCE_FILE].endsWith('simple.feature')).to.equal(true)
             expect(testSpan.type).to.equal('test')
             expect(testSpan.name).to.equal('cucumber.test')
             expect(testSpan.resource.endsWith('simple.feature.integration scenario')).to.equal(true)
@@ -419,6 +429,7 @@ describe('Plugin', function () {
               [TEST_STATUS]: 'fail'
             })
             expect(testSpan.meta[TEST_SUITE].endsWith('simple.feature')).to.equal(true)
+            expect(testSpan.meta[TEST_SOURCE_FILE].endsWith('simple.feature')).to.equal(true)
             expect(testSpan.type).to.equal('test')
             expect(testSpan.name).to.equal('cucumber.test')
             expect(testSpan.resource.endsWith('simple.feature.hooks fail')).to.equal(true)

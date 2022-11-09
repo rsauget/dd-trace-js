@@ -30,6 +30,10 @@ class CucumberPlugin extends Plugin {
     const sourceRoot = process.cwd()
     const codeOwnersEntries = getCodeOwnersFileEntries(sourceRoot)
 
+    this.addSub('ci:cucumber:session:finish', () => {
+      this.tracer._exporter._writer.flush()
+    })
+
     this.addSub('ci:cucumber:run:start', ({ pickleName, pickleUri }) => {
       const store = storage.getStore()
       const childOf = store ? store.span : store
@@ -54,10 +58,6 @@ class CucumberPlugin extends Plugin {
       this.enter(span, store)
     })
 
-    this.addSub('ci:cucumber:run:end', () => {
-      this.exit()
-    })
-
     this.addSub('ci:cucumber:run-step:start', ({ resource }) => {
       const store = storage.getStore()
       const childOf = store ? store.span : store
@@ -71,11 +71,7 @@ class CucumberPlugin extends Plugin {
       this.enter(span, store)
     })
 
-    this.addSub('ci:cucumber:run-step:end', () => {
-      this.exit()
-    })
-
-    this.addSub('ci:cucumber:run:async-end', ({ isStep, status, skipReason, errorMessage }) => {
+    this.addSub('ci:cucumber:run:finish', ({ isStep, status, skipReason, errorMessage }) => {
       const span = storage.getStore().span
       const statusTag = isStep ? 'step.status' : TEST_STATUS
 

@@ -1,6 +1,7 @@
 'use strict'
 const getPort = require('get-port')
 const { expect } = require('chai')
+const semver = require('semver')
 
 const agent = require('../../dd-trace/test/plugins/agent')
 const appServer = require('./app/app-server')
@@ -10,16 +11,20 @@ const {
   TEST_TYPE,
   TEST_NAME,
   TEST_SUITE,
+  TEST_SOURCE_FILE,
   TEST_STATUS,
   TEST_IS_RUM_ACTIVE,
   CI_APP_ORIGIN,
   ERROR_TYPE,
   ERROR_MESSAGE,
   TEST_FRAMEWORK_VERSION,
-  TEST_CODE_OWNERS
+  TEST_CODE_OWNERS,
+  LIBRARY_VERSION
 } = require('../../dd-trace/src/plugins/util/test')
 
-describe('Plugin', () => {
+const { version: ddTraceVersion } = require('../../../package.json')
+
+describe('Plugin', function () {
   let cypressExecutable
   let appPort
   let agentListenPort
@@ -43,7 +48,8 @@ describe('Plugin', () => {
       it('instruments tests', function (done) {
         process.env.DD_TRACE_AGENT_PORT = agentListenPort
         cypressExecutable.run({
-          project: './packages/datadog-plugin-cypress/test/app',
+          project: semver.intersects(version, '>=10')
+            ? './packages/datadog-plugin-cypress/test/app-10' : './packages/datadog-plugin-cypress/test/app',
           config: {
             baseUrl: `http://localhost:${appPort}`
           },
@@ -66,10 +72,12 @@ describe('Plugin', () => {
               [TEST_NAME]: 'can visit a page renders a hello world',
               [TEST_STATUS]: 'pass',
               [TEST_SUITE]: 'cypress/integration/integration-test.js',
+              [TEST_SOURCE_FILE]: 'cypress/integration/integration-test.js',
               [TEST_TYPE]: 'test',
               [ORIGIN_KEY]: CI_APP_ORIGIN,
               [TEST_IS_RUM_ACTIVE]: 'true',
-              [TEST_CODE_OWNERS]: JSON.stringify(['@datadog'])
+              [TEST_CODE_OWNERS]: JSON.stringify(['@datadog']),
+              [LIBRARY_VERSION]: ddTraceVersion
             })
             expect(testSpan.meta[TEST_FRAMEWORK_VERSION]).not.to.be.undefined
           })
@@ -90,6 +98,7 @@ describe('Plugin', () => {
               [TEST_NAME]: 'can visit a page will fail',
               [TEST_STATUS]: 'fail',
               [TEST_SUITE]: 'cypress/integration/integration-test.js',
+              [TEST_SOURCE_FILE]: 'cypress/integration/integration-test.js',
               [TEST_TYPE]: 'test',
               [ORIGIN_KEY]: CI_APP_ORIGIN,
               [ERROR_TYPE]: 'AssertionError',

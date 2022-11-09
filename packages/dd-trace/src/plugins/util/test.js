@@ -22,6 +22,7 @@ const id = require('../../id')
 const { SPAN_TYPE, RESOURCE_NAME, SAMPLING_PRIORITY } = require('../../../../../ext/tags')
 const { SAMPLING_RULE_DECISION } = require('../../constants')
 const { AUTO_KEEP } = require('../../../../../ext/priority')
+const { version: ddTraceVersion } = require('../../../../../package.json')
 
 const TEST_FRAMEWORK = 'test.framework'
 const TEST_FRAMEWORK_VERSION = 'test.framework_version'
@@ -33,6 +34,11 @@ const TEST_PARAMETERS = 'test.parameters'
 const TEST_SKIP_REASON = 'test.skip_reason'
 const TEST_IS_RUM_ACTIVE = 'test.is_rum_active'
 const TEST_CODE_OWNERS = 'test.codeowners'
+const TEST_SOURCE_FILE = 'test.source.file'
+const LIBRARY_VERSION = 'library_version'
+const TEST_COMMAND = 'test.command'
+const TEST_SESSION_ID = 'test_session_id'
+const TEST_SUITE_ID = 'test_suite_id'
 
 const ERROR_TYPE = 'error.type'
 const ERROR_MESSAGE = 'error.msg'
@@ -41,6 +47,10 @@ const ERROR_STACK = 'error.stack'
 const CI_APP_ORIGIN = 'ciapp-test'
 
 const JEST_TEST_RUNNER = 'test.jest.test_runner'
+
+const TEST_ITR_TESTS_SKIPPED = '_dd.ci.itr.tests_skipped'
+
+const TEST_CODE_COVERAGE_LINES_TOTAL = 'test.codecov_lines_total'
 
 module.exports = {
   TEST_CODE_OWNERS,
@@ -54,10 +64,12 @@ module.exports = {
   TEST_PARAMETERS,
   TEST_SKIP_REASON,
   TEST_IS_RUM_ACTIVE,
+  TEST_SOURCE_FILE,
   ERROR_TYPE,
   ERROR_MESSAGE,
   ERROR_STACK,
   CI_APP_ORIGIN,
+  LIBRARY_VERSION,
   getTestEnvironmentMetadata,
   getTestParametersString,
   finishAllTraceSpans,
@@ -65,7 +77,14 @@ module.exports = {
   getTestSuitePath,
   getCodeOwnersFileEntries,
   getCodeOwnersForFilename,
-  getTestCommonTags
+  getTestCommonTags,
+  getTestSessionCommonTags,
+  getTestSuiteCommonTags,
+  TEST_COMMAND,
+  TEST_SESSION_ID,
+  TEST_SUITE_ID,
+  TEST_ITR_TESTS_SKIPPED,
+  TEST_CODE_COVERAGE_LINES_TOTAL
 }
 
 function getTestEnvironmentMetadata (testFramework, config) {
@@ -148,8 +167,10 @@ function getTestCommonTags (name, suite, version) {
     [SAMPLING_PRIORITY]: AUTO_KEEP,
     [TEST_NAME]: name,
     [TEST_SUITE]: suite,
+    [TEST_SOURCE_FILE]: suite,
     [RESOURCE_NAME]: `${suite}.${name}`,
-    [TEST_FRAMEWORK_VERSION]: version
+    [TEST_FRAMEWORK_VERSION]: version,
+    [LIBRARY_VERSION]: ddTraceVersion
   }
 }
 
@@ -217,4 +238,27 @@ function getCodeOwnersForFilename (filename, entries) {
     }
   }
   return null
+}
+
+function getTestSessionCommonTags (command, version) {
+  return {
+    [SPAN_TYPE]: 'test_session_end',
+    [TEST_TYPE]: 'test',
+    [RESOURCE_NAME]: `test_session.${command}`,
+    [TEST_FRAMEWORK_VERSION]: version,
+    [LIBRARY_VERSION]: ddTraceVersion,
+    [TEST_COMMAND]: command
+  }
+}
+
+function getTestSuiteCommonTags (command, version, testSuite) {
+  return {
+    [SPAN_TYPE]: 'test_suite_end',
+    [TEST_TYPE]: 'test',
+    [RESOURCE_NAME]: `test_suite.${testSuite}`,
+    [TEST_FRAMEWORK_VERSION]: version,
+    [LIBRARY_VERSION]: ddTraceVersion,
+    [TEST_SUITE]: testSuite,
+    [TEST_COMMAND]: command
+  }
 }

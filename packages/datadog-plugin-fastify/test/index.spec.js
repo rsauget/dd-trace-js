@@ -1,10 +1,12 @@
 'use strict'
 
+const { AsyncLocalStorage } = require('async_hooks')
 const axios = require('axios')
 const getPort = require('get-port')
 const semver = require('semver')
 const agent = require('../../dd-trace/test/plugins/agent')
-const plugin = require('../src')
+
+const host = 'localhost'
 
 describe('Plugin', () => {
   let tracer
@@ -12,7 +14,7 @@ describe('Plugin', () => {
   let app
 
   describe('fastify', () => {
-    withVersions(plugin, 'fastify', version => {
+    withVersions('fastify', 'fastify', version => {
       beforeEach(() => {
         tracer = require('../../dd-trace')
       })
@@ -24,11 +26,11 @@ describe('Plugin', () => {
       withExports('fastify', version, ['default', 'fastify'], '>=3', getExport => {
         describe('without configuration', () => {
           before(() => {
-            return agent.load('fastify')
+            return agent.load(['fastify', 'find-my-way', 'http'], [{}, {}, { client: false }])
           })
 
           after(() => {
-            return agent.close()
+            return agent.close({ ritmReset: false })
           })
 
           beforeEach(() => {
@@ -62,7 +64,7 @@ describe('Plugin', () => {
                 .then(done)
                 .catch(done)
 
-              app.listen(port, 'localhost', () => {
+              app.listen({ host, port }, () => {
                 axios
                   .get(`http://localhost:${port}/user`)
                   .catch(done)
@@ -96,7 +98,7 @@ describe('Plugin', () => {
                 .then(done)
                 .catch(done)
 
-              app.listen(port, 'localhost', () => {
+              app.listen({ host, port }, () => {
                 axios
                   .get(`http://localhost:${port}/user/123`)
                   .catch(done)
@@ -129,7 +131,7 @@ describe('Plugin', () => {
                   .then(done)
                   .catch(done)
 
-                app.listen(port, 'localhost', () => {
+                app.listen({ host, port }, () => {
                   axios
                     .get(`http://localhost:${port}/user/123`)
                     .catch(done)
@@ -150,7 +152,7 @@ describe('Plugin', () => {
             })
 
             getPort().then(port => {
-              app.listen(port, 'localhost', () => {
+              app.listen({ host, port }, () => {
                 axios.get(`http://localhost:${port}/user`)
                   .then(() => done())
                   .catch(done)
@@ -167,7 +169,7 @@ describe('Plugin', () => {
             app.get('/user', (request, reply) => reply.send())
 
             getPort().then(port => {
-              app.listen(port, 'localhost', () => {
+              app.listen({ host, port }, () => {
                 axios.get(`http://localhost:${port}/user`)
                   .then(() => done())
                   .catch(done)
@@ -182,7 +184,7 @@ describe('Plugin', () => {
             })
 
             getPort().then(port => {
-              app.listen(port, 'localhost', () => {
+              app.listen({ host, port }, () => {
                 axios.post(`http://localhost:${port}/user`, { foo: 'bar' })
                   .then(() => done())
                   .catch(done)
@@ -206,7 +208,7 @@ describe('Plugin', () => {
             })
 
             getPort().then(port => {
-              app.listen(port, 'localhost', () => {
+              app.listen({ host, port }, () => {
                 axios.post(`http://localhost:${port}/user`, { foo: 'bar' })
                   .then(() => done())
                   .catch(done)
@@ -220,16 +222,31 @@ describe('Plugin', () => {
               next()
             })
 
+            app.addHook('preHandler', (request, reply, next) => {
+              expect(tracer.scope().active()).to.not.be.null
+              next ? next() : reply()
+            })
+
             app.addHook('onResponse', (request, reply, next) => {
               expect(tracer.scope().active()).to.not.be.null
               next ? next() : reply()
             })
 
-            app.get('/user', (request, reply) => reply.send())
+            app.use((req, res, next) => {
+              next()
+            })
+
+            app.route({
+              method: 'POST',
+              url: '/user',
+              handler: (request, reply) => {
+                reply.send()
+              }
+            })
 
             getPort().then(port => {
-              app.listen(port, 'localhost', () => {
-                axios.get(`http://localhost:${port}/user`)
+              app.listen({ host, port }, () => {
+                axios.post(`http://localhost:${port}/user`, { foo: 'bar' })
                   .then(() => done())
                   .catch(done)
               })
@@ -257,10 +274,55 @@ describe('Plugin', () => {
                 .then(done)
                 .catch(done)
 
-              app.listen(port, 'localhost', () => {
+              app.listen({ host, port }, () => {
                 axios
                   .get(`http://localhost:${port}/user`)
                   .catch(() => {})
+              })
+            })
+          })
+
+          // This is a regression test for https://github.com/DataDog/dd-trace-js/issues/2047
+          it('should not time out on async hooks', (done) => {
+            app.addHook('onRequest', async (request, reply) => {})
+
+            app.get('/user', (request, reply) => {
+              reply.send()
+            })
+
+            getPort().then(port => {
+              app.listen({ host, port }, async () => {
+                await axios.get(`http://localhost:${port}/user`)
+                done()
+              })
+            })
+          })
+
+          it('should keep user stores untouched', done => {
+            const storage = new AsyncLocalStorage()
+            const store = {}
+
+            global.getStore = () => storage.getStore()
+
+            app.addHook('onRequest', (request, reply, next) => {
+              storage.run(store, () => next())
+            })
+
+            app.get('/user', (request, reply) => {
+              try {
+                expect(storage.getStore()).to.equal(store)
+                done()
+              } catch (e) {
+                done(e)
+              }
+
+              reply.send()
+            })
+
+            getPort().then(port => {
+              app.listen({ host, port }, () => {
+                axios.get(`http://localhost:${port}/user`)
+                  .catch(done)
               })
             })
           })
@@ -291,7 +353,7 @@ describe('Plugin', () => {
                 .then(done)
                 .catch(done)
 
-              app.listen(port, 'localhost', () => {
+              app.listen({ host, port }, () => {
                 axios
                   .get(`http://localhost:${port}/user`)
                   .catch(() => {})
@@ -320,7 +382,7 @@ describe('Plugin', () => {
                   .then(done)
                   .catch(done)
 
-                app.listen(port, 'localhost', () => {
+                app.listen({ host, port }, () => {
                   axios
                     .get(`http://localhost:${port}/user`)
                     .catch(() => {})
@@ -352,7 +414,7 @@ describe('Plugin', () => {
                   .then(done)
                   .catch(done)
 
-                app.listen(port, 'localhost', () => {
+                app.listen({ host, port }, () => {
                   axios
                     .get(`http://localhost:${port}/user`)
                     .catch(() => {})
@@ -364,6 +426,7 @@ describe('Plugin', () => {
               let error
 
               app.setErrorHandler((error, request, reply) => {
+                reply.statusCode = 500
                 reply.send()
               })
               app.get('/user', (request, reply) => {
@@ -377,6 +440,7 @@ describe('Plugin', () => {
 
                     expect(spans[0]).to.have.property('name', 'fastify.request')
                     expect(spans[0]).to.have.property('resource', 'GET /user')
+                    expect(spans[0]).to.have.property('error', 1)
                     expect(spans[0].meta).to.have.property('error.type', error.name)
                     expect(spans[0].meta).to.have.property('error.msg', error.message)
                     expect(spans[0].meta).to.have.property('error.stack', error.stack)
@@ -384,7 +448,39 @@ describe('Plugin', () => {
                   .then(done)
                   .catch(done)
 
-                app.listen(port, 'localhost', () => {
+                app.listen({ host, port }, () => {
+                  axios
+                    .get(`http://localhost:${port}/user`)
+                    .catch(() => {})
+                })
+              })
+            })
+
+            it('should ignore reply exceptions if the request succeeds', done => {
+              app.setErrorHandler((error, request, reply) => {
+                reply.statusCode = 200
+                reply.send()
+              })
+              app.get('/user', (request, reply) => {
+                throw new Error('boom')
+              })
+
+              getPort().then(port => {
+                agent
+                  .use(traces => {
+                    const spans = traces[0]
+
+                    expect(spans[0]).to.have.property('name', 'fastify.request')
+                    expect(spans[0]).to.have.property('resource', 'GET /user')
+                    expect(spans[0]).to.have.property('error', 0)
+                    expect(spans[0].meta).to.not.have.property('error.type')
+                    expect(spans[0].meta).to.not.have.property('error.msg')
+                    expect(spans[0].meta).to.not.have.property('error.stack')
+                  })
+                  .then(done)
+                  .catch(done)
+
+                app.listen({ host, port }, () => {
                   axios
                     .get(`http://localhost:${port}/user`)
                     .catch(() => {})
@@ -422,7 +518,7 @@ describe('Plugin', () => {
                   .then(done)
                   .catch(done)
 
-                app.listen(port, 'localhost', () => {
+                app.listen({ host, port }, () => {
                   axios
                     .get(`http://localhost:${port}/user`)
                     .catch(() => {})
