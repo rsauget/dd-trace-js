@@ -123,6 +123,10 @@ class WAFCallback {
     }
   }
 
+  updateRuleData (ruleData) {
+    this.ddwaf.updateRuleData(ruleData)
+  }
+
   clear () {
     this.ddwaf.dispose()
 
