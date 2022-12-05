@@ -3,6 +3,7 @@
 const AgentExporter = require('./exporters/agent')
 const LogExporter = require('./exporters/log')
 const AgentlessCiVisibilityExporter = require('./ci-visibility/exporters/agentless')
+const FFIExporter = require('./exporters/ffi')
 const exporters = require('../../../ext/exporters')
 const fs = require('fs')
 const constants = require('./constants')
@@ -18,6 +19,8 @@ module.exports = name => {
       return AgentExporter
     case exporters.DATADOG:
       return AgentlessCiVisibilityExporter
+    case exporters.FFI:
+      return FFIExporter
     default:
       return inAWSLambda && !usingLambdaExtension ? LogExporter : AgentExporter
   }
