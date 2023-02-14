@@ -36,6 +36,10 @@ class KafkajsConsumerPlugin extends ConsumerPlugin {
       _parentTimestamp: parentTimestamp
     })
   }
+
+  // TODO: might need new hook to get partition from response
+  // however, not entirely needed now, so maybe we worry about it later
+  // TODO: offset is also in response and that will be needed in future as well
 }
 
 function extract (tracer, bufferMap) {

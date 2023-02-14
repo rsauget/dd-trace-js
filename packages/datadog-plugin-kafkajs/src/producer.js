@@ -6,6 +6,7 @@ class KafkajsProducerPlugin extends ProducerPlugin {
   static get name () { return 'kafkajs' }
   static get operation () { return 'produce' }
 
+  // TODO: does this wrap the network request? how do we get response / timing? APM concerns not DSM concerns
   start ({ topic, messages }) {
     // TODO: Produce Checkpoint
     const existingSpan = someHowGetTheSpanWereIn('kafka.consume') // TODO: is this possible?
