@@ -12,7 +12,11 @@ class KafkajsConsumerPlugin extends ConsumerPlugin {
 
     const checkpointString = getCheckpointString('TODO', topic, partition)
 
+    const parentTimestamp = getParentTImestamp(message.headers)
+
     const checkpointHash = getCheckpointHash(checkpointString)
+
+    const currentTimeNs = Date.now() * 1000
 
     this.startSpan('kafka.consume', {
       childOf,
@@ -28,7 +32,8 @@ class KafkajsConsumerPlugin extends ConsumerPlugin {
       metrics: {
         'kafka.partition': partition
       },
-      _checkpointHash: checkpointHash
+      _checkpointHash: checkpointHash,
+      _parentTimestamp: parentTimestamp
     })
   }
 }

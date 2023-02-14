@@ -10,8 +10,10 @@ class KafkajsProducerPlugin extends ProducerPlugin {
     // TODO: Produce Checkpoint
     const existingSpan = someHowGetTheSpanWereIn('kafka.consume') // TODO: is this possible?
 
+    const currentTimeNs = Date.now() * 1000
+
     if (existingSpan) {
-      doSomethingWithTheStuff(existingSpan)
+      someData = doSomethingWithTheStuff(existingSpan._checkpointHash)
     }
 
     const span = this.startSpan('kafka.produce', {
@@ -30,7 +32,7 @@ class KafkajsProducerPlugin extends ProducerPlugin {
     for (const message of messages) {
       if (typeof message === 'object') {
         this.tracer.inject(span, 'text_map', message.headers)
-        message.headers['dd-pathway-ctx'] = 'foobar'
+        message.headers['dd-pathway-ctx'] = someData + currentTimeNs
       }
     }
   }
