@@ -7,7 +7,12 @@ class KafkajsConsumerPlugin extends ConsumerPlugin {
   static get operation () { return 'consume' }
 
   start ({ topic, partition, message }) {
+    // TODO: Consume Checkpoint
     const childOf = extract(this.tracer, message.headers)
+
+    const checkpointString = getCheckpointString('TODO', topic, partition)
+
+    const checkpointHash = getCheckpointHash(checkpointString)
 
     this.startSpan('kafka.consume', {
       childOf,
@@ -22,7 +27,8 @@ class KafkajsConsumerPlugin extends ConsumerPlugin {
       },
       metrics: {
         'kafka.partition': partition
-      }
+      },
+      _checkpointHash: checkpointHash
     })
   }
 }
@@ -37,6 +43,10 @@ function extract (tracer, bufferMap) {
   }
 
   return tracer.extract('text_map', textMap)
+}
+
+function getCheckpointString(group, topic, partition) {
+  return `direction:ingroup:${group}partition:${partition}topic:${topic}type:kafka`;
 }
 
 module.exports = KafkajsConsumerPlugin
