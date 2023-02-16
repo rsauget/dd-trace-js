@@ -12,7 +12,8 @@ class KafkajsConsumerPlugin extends ConsumerPlugin {
 
     const checkpointString = getCheckpointString('TODO', topic, partition)
 
-    const parentTimestamp = getParentTImestamp(message.headers)
+
+    const { parentHash, parentTimestamp, originTImestamp } = extract(message.headers) // zigzag etc
 
     const checkpointHash = getCheckpointHash(checkpointString)
 
