@@ -56,7 +56,7 @@ function extract (tracer, bufferMap) {
 }
 
 function getCheckpointString(group, topic, partition) {
-  return `direction:ingroup:${group}partition:${partition}topic:${topic}type:kafka`;
+  return `${service}${env}direction:ingroup:${group}partition:${partition}topic:${topic}type:kafka`;
 }
 
 module.exports = KafkajsConsumerPlugin
