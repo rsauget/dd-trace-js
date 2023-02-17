@@ -1,3 +1,5 @@
 * @DataDog/dd-trace-js
 /packages/dd-trace/src/appsec/ @DataDog/appsec-js
 /packages/dd-trace/test/appsec/ @DataDog/appsec-js
+/packages/dd-trace/src/lambda/ @DataDog/serverless
+/packages/dd-trace/test/lambda/ @DataDog/serverless
