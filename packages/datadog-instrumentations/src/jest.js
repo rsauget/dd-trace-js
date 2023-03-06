@@ -2,7 +2,11 @@
 const { addHook, channel, AsyncResource } = require('./helpers/instrument')
 const shimmer = require('../../datadog-shimmer')
 const log = require('../../dd-trace/src/log')
-const { getCoveredFilenamesFromCoverage } = require('../../dd-trace/src/plugins/util/test')
+const {
+  getCoveredFilenamesFromCoverage,
+  JEST_WORKER_TRACE_PAYLOAD_CODE,
+  JEST_WORKER_COVERAGE_PAYLOAD_CODE
+} = require('../../dd-trace/src/plugins/util/test')
 
 const testSessionStartCh = channel('ci:jest:session:start')
 const testSessionFinishCh = channel('ci:jest:session:finish')
@@ -11,6 +15,9 @@ const testSessionConfigurationCh = channel('ci:jest:session:configuration')
 
 const testSuiteStartCh = channel('ci:jest:test-suite:start')
 const testSuiteFinishCh = channel('ci:jest:test-suite:finish')
+
+const workerReportTraceCh = channel('ci:jest:worker-report:trace')
+const workerReportCoverageCh = channel('ci:jest:worker-report:coverage')
 
 const testSuiteCodeCoverageCh = channel('ci:jest:test-suite:code-coverage')
 
@@ -215,7 +222,6 @@ function cliWrapper (cli, jestVersion) {
         log.error(err)
       }
     }
-
     const isSuitesSkipped = !!skippableSuites.length
 
     const processArgv = process.argv.slice(2).join(' ')
@@ -482,7 +488,6 @@ const JEST_WORKER_SHUTDOWN_TIMEOUT = 20
 // https://github.com/facebook/jest/blob/d6ad15b0f88a05816c2fe034dd6900d28315d570/packages/jest-worker/src/types.ts#L38
 const CHILD_MESSAGE_END = 2
 
-// 25.1.0 is where waitForExit
 addHook({
   name: 'jest-worker',
   versions: ['>=24.9.0'],
@@ -510,6 +515,7 @@ addHook({
 
       // If the workers are able to shut down gracefully before the timeout, we proceed
       await Promise.race([workersWaitForExitPromise, killPromise])
+
       clearTimeout(timeoutId)
     } catch (e) {
       // ignore error
@@ -517,4 +523,25 @@ addHook({
     return end.apply(this, arguments)
   })
   return baseWorkerPool
+})
+
+addHook({
+  name: 'jest-worker',
+  versions: ['>=24.9.0'],
+  file: 'build/workers/ChildProcessWorker.js'
+}, (childProcessWorker) => {
+  const ChildProcessWorker = childProcessWorker.default
+  shimmer.wrap(ChildProcessWorker.prototype, '_onMessage', _onMessage => function () {
+    const [code, data] = arguments[0]
+    if (code === JEST_WORKER_TRACE_PAYLOAD_CODE) { // datadog trace payload
+      workerReportTraceCh.publish(data)
+      return
+    }
+    if (code === JEST_WORKER_COVERAGE_PAYLOAD_CODE) { // datadog coverage payload
+      workerReportCoverageCh.publish(data)
+      return
+    }
+    return _onMessage.apply(this, arguments)
+  })
+  return childProcessWorker
 })
