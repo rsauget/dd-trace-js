@@ -98,15 +98,19 @@ class JestPlugin extends CiPlugin {
       })
     })
 
-    this.addSub('ci:jest:worker-report:trace', data => {
-      const formattedTraces = JSON.parse(data).map(span => ({
-        ...span,
-        span_id: id(span.span_id),
-        trace_id: id(span.trace_id),
-        parent_id: id(span.parent_id)
-      }))
+    this.addSub('ci:jest:worker-report:trace', traces => {
+      const formattedTraces = JSON.parse(traces).map(trace =>
+        trace.map(span => ({
+          ...span,
+          span_id: id(span.span_id),
+          trace_id: id(span.trace_id),
+          parent_id: id(span.parent_id)
+        }))
+      )
 
-      this.tracer._exporter.export(formattedTraces)
+      formattedTraces.forEach(trace => {
+        this.tracer._exporter.export(trace)
+      })
     })
 
     this.addSub('ci:jest:worker-report:coverage', data => {

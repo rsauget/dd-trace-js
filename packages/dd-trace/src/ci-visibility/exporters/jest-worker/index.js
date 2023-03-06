@@ -21,7 +21,7 @@ class JestWorkerCiVisibilityExporter {
   }
 
   exportCoverage (formattedCoverage) {
-    this._coverageWriter.append([formattedCoverage])
+    this._coverageWriter.append(formattedCoverage)
   }
 
   flush () {

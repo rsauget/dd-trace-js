@@ -212,8 +212,7 @@ describe('agentless-ci-visibility-encode', () => {
     })
   })
 
-  // TODO: figure out if this is still needed
-  it.skip('should not encode events other than sessions and suites if the trace is a test session', () => {
+  it('should not encode events other than sessions and suites if the trace is a test session', () => {
     const traceToFilter = [
       {
         trace_id: id('1234abcd1234abcd'),

@@ -6,7 +6,7 @@ class JSONEncoder {
   }
 
   encode (payload) {
-    this.payloads = this.payloads.concat(payload)
+    this.payloads.push(payload)
   }
 
   count () {

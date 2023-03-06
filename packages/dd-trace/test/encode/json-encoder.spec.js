@@ -12,7 +12,7 @@ describe('CI Visibility JSON encoder', () => {
     process.send = originalSend
   })
   it('can JSON serialize payloads', () => {
-    const payload = { type: 'test' }
+    const payload = [{ type: 'test' }, { type: 'test', name: 'test2' }]
     const payloadSecond = { type: 'test', name: 'other' }
     const encoder = new JSONEncoder()
     encoder.encode(payload)

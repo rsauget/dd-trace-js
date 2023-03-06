@@ -118,8 +118,9 @@ testFrameworks.forEach(({
 
     it('can run tests and report spans', (done) => {
       receiver.setInfoResponse({ endpoints: [] })
-      receiver.payloadReceived(({ url }) => url === '/v0.4/traces').then(({ payload }) => {
-        const testSpans = payload.flatMap(trace => trace)
+
+      receiver.gatherPayloads(({ url }) => url === '/v0.4/traces', 5000).then(requests => {
+        const testSpans = requests.flatMap(request => request.payload).flatMap(trace => trace)
         const resourceNames = testSpans.map(span => span.resource)
 
         assert.includeMembers(resourceNames,
@@ -241,17 +242,20 @@ testFrameworks.forEach(({
           ({ url }) => url === '/api/v2/git/repository/search_commits'
         )
         const packfileRequestPromise = receiver.payloadReceived(({ url }) => url === '/api/v2/git/repository/packfile')
-        const eventsRequestPromise = receiver.payloadReceived(({ url }) => url === '/api/v2/citestcycle')
+        const eventsRequestsPromise = receiver.gatherPayloads(({ url }) => url === '/api/v2/citestcycle', 5000)
 
         Promise.all([
           searchCommitsRequestPromise,
           packfileRequestPromise,
-          eventsRequestPromise
-        ]).then(([searchCommitRequest, packfileRequest, eventsRequest]) => {
+          eventsRequestsPromise
+        ]).then(([searchCommitRequest, packfileRequest, eventsRequests]) => {
           assert.propertyVal(searchCommitRequest.headers, 'dd-api-key', '1')
           assert.propertyVal(packfileRequest.headers, 'dd-api-key', '1')
 
-          const eventTypes = eventsRequest.payload.events.map(event => event.type)
+          const eventTypes = eventsRequests.map(({ payload }) => payload)
+            .flatMap(({ events }) => events)
+            .map(event => event.type)
+
           assert.includeMembers(eventTypes, ['test', 'test_suite_end', 'test_module_end', 'test_session_end'])
           const numSuites = eventTypes.reduce(
             (acc, type) => type === 'test_suite_end' ? acc + 1 : acc, 0
@@ -272,13 +276,13 @@ testFrameworks.forEach(({
           ({ url }) => url === '/api/v2/libraries/tests/services/setting'
         )
         const codeCovRequestPromise = receiver.payloadReceived(({ url }) => url === '/api/v2/citestcov')
-        const eventsRequestPromise = receiver.payloadReceived(({ url }) => url === '/api/v2/citestcycle')
+        const eventsRequestsPromise = receiver.gatherPayloads(({ url }) => url === '/api/v2/citestcycle', 5000)
 
         Promise.all([
           itrConfigRequestPromise,
           codeCovRequestPromise,
-          eventsRequestPromise
-        ]).then(([itrConfigRequest, codeCovRequest, eventsRequest]) => {
+          eventsRequestsPromise
+        ]).then(([itrConfigRequest, codeCovRequest, eventsRequests]) => {
           assert.propertyVal(itrConfigRequest.headers, 'dd-api-key', '1')
           assert.propertyVal(itrConfigRequest.headers, 'dd-application-key', '1')
 
@@ -300,7 +304,10 @@ testFrameworks.forEach(({
           assert.exists(coveragePayload.content.coverages[0].test_session_id)
           assert.exists(coveragePayload.content.coverages[0].test_suite_id)
 
-          const eventTypes = eventsRequest.payload.events.map(event => event.type)
+          const eventTypes = eventsRequests.map(({ payload }) => payload)
+            .flatMap(({ events }) => events)
+            .map(event => event.type)
+
           assert.includeMembers(eventTypes, ['test', 'test_suite_end', 'test_module_end', 'test_session_end'])
           const numSuites = eventTypes.reduce(
             (acc, type) => type === 'test_suite_end' ? acc + 1 : acc, 0
@@ -329,19 +336,30 @@ testFrameworks.forEach(({
           done(error)
         }, ({ url }) => url === '/api/v2/citestcov')
 
-        receiver.assertPayloadReceived(({ headers, payload }) => {
-          assert.propertyVal(headers, 'dd-api-key', '1')
-          const eventTypes = payload.events.map(event => event.type)
-          assert.includeMembers(eventTypes, ['test', 'test_session_end', 'test_module_end', 'test_suite_end'])
-          const testSession = payload.events.find(event => event.type === 'test_session_end').content
-          assert.propertyVal(testSession.meta, TEST_ITR_TESTS_SKIPPED, 'false')
-          assert.propertyVal(testSession.meta, TEST_SESSION_CODE_COVERAGE_ENABLED, 'false')
-          assert.propertyVal(testSession.meta, TEST_SESSION_ITR_SKIPPING_ENABLED, 'false')
-          const testModule = payload.events.find(event => event.type === 'test_module_end').content
-          assert.propertyVal(testModule.meta, TEST_ITR_TESTS_SKIPPED, 'false')
-          assert.propertyVal(testModule.meta, TEST_MODULE_CODE_COVERAGE_ENABLED, 'false')
-          assert.propertyVal(testModule.meta, TEST_MODULE_ITR_SKIPPING_ENABLED, 'false')
-        }, ({ url }) => url === '/api/v2/citestcycle').then(() => done()).catch(done)
+        receiver
+          .gatherPayloads(({ url }) => url === '/api/v2/citestcycle', 5000)
+          .then(eventsRequests => {
+            const allHeaders = eventsRequests.map(({ headers }) => headers)
+            allHeaders.forEach(headers => {
+              assert.propertyVal(headers, 'dd-api-key', '1')
+            })
+
+            const events = eventsRequests.map(({ payload }) => payload)
+              .flatMap(({ events }) => events)
+
+            const eventTypes = events.map(event => event.type)
+
+            assert.includeMembers(eventTypes, ['test', 'test_session_end', 'test_module_end', 'test_suite_end'])
+            const testSession = events.find(event => event.type === 'test_session_end').content
+            assert.propertyVal(testSession.meta, TEST_ITR_TESTS_SKIPPED, 'false')
+            assert.propertyVal(testSession.meta, TEST_SESSION_CODE_COVERAGE_ENABLED, 'false')
+            assert.propertyVal(testSession.meta, TEST_SESSION_ITR_SKIPPING_ENABLED, 'false')
+            const testModule = events.find(event => event.type === 'test_module_end').content
+            assert.propertyVal(testModule.meta, TEST_ITR_TESTS_SKIPPED, 'false')
+            assert.propertyVal(testModule.meta, TEST_MODULE_CODE_COVERAGE_ENABLED, 'false')
+            assert.propertyVal(testModule.meta, TEST_MODULE_ITR_SKIPPING_ENABLED, 'false')
+            done()
+          }).catch(done)
 
         childProcess = exec(
           runTestsWithCoverageCommand,
@@ -362,13 +380,13 @@ testFrameworks.forEach(({
 
         const skippableRequestPromise = receiver.payloadReceived(({ url }) => url === '/api/v2/ci/tests/skippable')
         const coverageRequestPromise = receiver.payloadReceived(({ url }) => url === '/api/v2/citestcov')
-        const eventsRequestPromise = receiver.payloadReceived(({ url }) => url === '/api/v2/citestcycle')
+        const eventsRequestsPromise = receiver.gatherPayloads(({ url }) => url === '/api/v2/citestcycle', 5000)
 
         Promise.all([
           skippableRequestPromise,
           coverageRequestPromise,
-          eventsRequestPromise
-        ]).then(([skippableRequest, coverageRequest, eventsRequest]) => {
+          eventsRequestsPromise
+        ]).then(([skippableRequest, coverageRequest, eventsRequests]) => {
           assert.propertyVal(skippableRequest.headers, 'dd-api-key', '1')
           assert.propertyVal(skippableRequest.headers, 'dd-application-key', '1')
           const [coveragePayload] = coverageRequest.payload
@@ -377,9 +395,16 @@ testFrameworks.forEach(({
           assert.propertyVal(coveragePayload, 'filename', 'coverage1.msgpack')
           assert.propertyVal(coveragePayload, 'type', 'application/msgpack')
 
-          assert.propertyVal(eventsRequest.headers, 'dd-api-key', '1')
-          const eventTypes = eventsRequest.payload.events.map(event => event.type)
-          const skippedTest = eventsRequest.payload.events.find(event =>
+          const allHeaders = eventsRequests.map(({ headers }) => headers)
+          allHeaders.forEach(headers => {
+            assert.propertyVal(headers, 'dd-api-key', '1')
+          })
+
+          const events = eventsRequests.map(({ payload }) => payload)
+            .flatMap(({ events }) => events)
+
+          const eventTypes = events.map(event => event.type)
+          const skippedTest = events.find(event =>
             event.content.resource === 'ci-visibility/test/ci-visibility-test.js.ci visibility can report tests'
           )
           assert.notExists(skippedTest)
@@ -388,11 +413,11 @@ testFrameworks.forEach(({
             (acc, type) => type === 'test_suite_end' ? acc + 1 : acc, 0
           )
           assert.equal(numSuites, 1)
-          const testSession = eventsRequest.payload.events.find(event => event.type === 'test_session_end').content
+          const testSession = events.find(event => event.type === 'test_session_end').content
           assert.propertyVal(testSession.meta, TEST_ITR_TESTS_SKIPPED, 'true')
           assert.propertyVal(testSession.meta, TEST_SESSION_CODE_COVERAGE_ENABLED, 'true')
           assert.propertyVal(testSession.meta, TEST_SESSION_ITR_SKIPPING_ENABLED, 'true')
-          const testModule = eventsRequest.payload.events.find(event => event.type === 'test_module_end').content
+          const testModule = events.find(event => event.type === 'test_module_end').content
           assert.propertyVal(testModule.meta, TEST_ITR_TESTS_SKIPPED, 'true')
           assert.propertyVal(testModule.meta, TEST_MODULE_CODE_COVERAGE_ENABLED, 'true')
           assert.propertyVal(testModule.meta, TEST_MODULE_ITR_SKIPPING_ENABLED, 'true')
@@ -423,24 +448,32 @@ testFrameworks.forEach(({
           done(error)
         }, ({ url }) => url === '/api/v2/ci/tests/skippable')
 
-        receiver.assertPayloadReceived(({ headers, payload }) => {
-          assert.propertyVal(headers, 'dd-api-key', '1')
-          const eventTypes = payload.events.map(event => event.type)
+        receiver.gatherPayloads(({ url }) => url === '/api/v2/citestcycle', 5000).then(eventsRequests => {
+          const allHeaders = eventsRequests.map(({ headers }) => headers)
+          allHeaders.forEach(headers => {
+            assert.propertyVal(headers, 'dd-api-key', '1')
+          })
+
+          const events = eventsRequests.map(({ payload }) => payload)
+            .flatMap(({ events }) => events)
+
+          const eventTypes = events.map(event => event.type)
           // because they are not skipped
           assert.includeMembers(eventTypes, ['test', 'test_suite_end', 'test_module_end', 'test_session_end'])
           const numSuites = eventTypes.reduce(
             (acc, type) => type === 'test_suite_end' ? acc + 1 : acc, 0
           )
           assert.equal(numSuites, 2)
-          const testSession = payload.events.find(event => event.type === 'test_session_end').content
+          const testSession = events.find(event => event.type === 'test_session_end').content
           assert.propertyVal(testSession.meta, TEST_ITR_TESTS_SKIPPED, 'false')
           assert.propertyVal(testSession.meta, TEST_SESSION_CODE_COVERAGE_ENABLED, 'true')
           assert.propertyVal(testSession.meta, TEST_SESSION_ITR_SKIPPING_ENABLED, 'true')
-          const testModule = payload.events.find(event => event.type === 'test_module_end').content
+          const testModule = events.find(event => event.type === 'test_module_end').content
           assert.propertyVal(testModule.meta, TEST_ITR_TESTS_SKIPPED, 'false')
           assert.propertyVal(testModule.meta, TEST_MODULE_CODE_COVERAGE_ENABLED, 'true')
           assert.propertyVal(testModule.meta, TEST_MODULE_ITR_SKIPPING_ENABLED, 'true')
-        }, ({ url }) => url === '/api/v2/citestcycle').then(() => done()).catch(done)
+          done()
+        }).catch(done)
 
         childProcess = exec(
           runTestsWithCoverageCommand,
@@ -469,16 +502,24 @@ testFrameworks.forEach(({
           done(error)
         }, ({ url }) => url === '/api/v2/ci/tests/skippable')
 
-        receiver.assertPayloadReceived(({ headers, payload }) => {
-          assert.propertyVal(headers, 'dd-api-key', '1')
-          const eventTypes = payload.events.map(event => event.type)
+        receiver.gatherPayloads(({ url }) => url === '/api/v2/citestcycle', 5000).then(eventsRequests => {
+          const allHeaders = eventsRequests.map(({ headers }) => headers)
+          allHeaders.forEach(headers => {
+            assert.propertyVal(headers, 'dd-api-key', '1')
+          })
+
+          const events = eventsRequests.map(({ payload }) => payload)
+            .flatMap(({ events }) => events)
+
+          const eventTypes = events.map(event => event.type)
           // because they are not skipped
           assert.includeMembers(eventTypes, ['test', 'test_suite_end', 'test_module_end', 'test_session_end'])
           const numSuites = eventTypes.reduce(
             (acc, type) => type === 'test_suite_end' ? acc + 1 : acc, 0
           )
           assert.equal(numSuites, 2)
-        }, ({ url }) => url === '/api/v2/citestcycle').then(() => done()).catch(done)
+          done()
+        }).catch(done)
 
         childProcess = exec(
           runTestsWithCoverageCommand,
@@ -513,8 +554,8 @@ testFrameworks.forEach(({
             done(error)
           }, ({ url }) => url === '/evp_proxy/v2/api/v2/libraries/tests/services/setting')
 
-          receiver.assertPayloadReceived(({ payload }) => {
-            const testSpans = payload.flatMap(trace => trace)
+          receiver.gatherPayloads(({ url }) => url === '/v0.4/traces', 5000).then(requests => {
+            const testSpans = requests.flatMap(({ payload }) => payload).flatMap(trace => trace)
             const resourceNames = testSpans.map(span => span.resource)
 
             assert.includeMembers(resourceNames,
@@ -523,7 +564,8 @@ testFrameworks.forEach(({
                 'ci-visibility/test/ci-visibility-test-2.js.ci visibility 2 can report tests 2'
               ]
             )
-          }, ({ url }) => url === '/v0.4/traces').then(() => done()).catch(done)
+            done()
+          }).catch(done)
 
           childProcess = fork(startupTestFile, {
             cwd,
@@ -540,14 +582,17 @@ testFrameworks.forEach(({
         const packFileRequestPromise = receiver.payloadReceived(
           ({ url }) => url === '/evp_proxy/v2/api/v2/git/repository/packfile'
         )
-        const eventsRequestPromise = receiver.payloadReceived(({ url }) => url === '/evp_proxy/v2/api/v2/citestcycle')
+        const eventsRequestsPromise = receiver
+          .gatherPayloads(({ url }) => url === '/evp_proxy/v2/api/v2/citestcycle', 5000)
 
         Promise.all([
           infoRequestPromise,
           searchCommitsRequestPromise,
           packFileRequestPromise,
-          eventsRequestPromise
-        ]).then(([infoRequest, searchCommitsRequest, packfileRequest, eventsRequest]) => {
+          eventsRequestsPromise
+        ]).then(([infoRequest, searchCommitsRequest, packfileRequest, eventsRequests]) => {
+          const events = eventsRequests.map(({ payload }) => payload)
+            .flatMap(({ events }) => events)
           assert.notProperty(infoRequest.headers, 'dd-api-key')
 
           assert.notProperty(searchCommitsRequest.headers, 'dd-api-key')
@@ -556,7 +601,7 @@ testFrameworks.forEach(({
           assert.notProperty(packfileRequest.headers, 'dd-api-key')
           assert.propertyVal(packfileRequest.headers, 'x-datadog-evp-subdomain', 'api')
 
-          const eventTypes = eventsRequest.payload.events.map(event => event.type)
+          const eventTypes = events.map(event => event.type)
           assert.includeMembers(eventTypes, ['test', 'test_suite_end', 'test_module_end', 'test_session_end'])
           const numSuites = eventTypes.reduce(
             (acc, type) => type === 'test_suite_end' ? acc + 1 : acc, 0
@@ -576,13 +621,14 @@ testFrameworks.forEach(({
           ({ url }) => url === '/evp_proxy/v2/api/v2/libraries/tests/services/setting'
         )
         const codeCovRequestPromise = receiver.payloadReceived(({ url }) => url === '/evp_proxy/v2/api/v2/citestcov')
-        const eventsRequestPromise = receiver.payloadReceived(({ url }) => url === '/evp_proxy/v2/api/v2/citestcycle')
+        const eventsRequestsPromise = receiver
+          .gatherPayloads(({ url }) => url === '/evp_proxy/v2/api/v2/citestcycle', 5000)
 
         Promise.all([
           itrConfigRequestPromise,
           codeCovRequestPromise,
-          eventsRequestPromise
-        ]).then(([itrConfigRequest, codeCovRequest, eventsRequest]) => {
+          eventsRequestsPromise
+        ]).then(([itrConfigRequest, codeCovRequest, eventsRequests]) => {
           assert.notProperty(itrConfigRequest.headers, 'dd-api-key')
           assert.notProperty(itrConfigRequest.headers, 'dd-application-key')
           assert.propertyVal(itrConfigRequest.headers, 'x-datadog-evp-subdomain', 'api')
@@ -606,7 +652,11 @@ testFrameworks.forEach(({
           assert.exists(coveragePayload.content.coverages[0].test_session_id)
           assert.exists(coveragePayload.content.coverages[0].test_suite_id)
 
-          const eventTypes = eventsRequest.payload.events.map(event => event.type)
+          const eventTypes = eventsRequests
+            .map(({ payload }) => payload)
+            .flatMap(({ events }) => events)
+            .map(event => event.type)
+
           assert.includeMembers(eventTypes, ['test', 'test_suite_end', 'test_module_end', 'test_session_end'])
           const numSuites = eventTypes.reduce(
             (acc, type) => type === 'test_suite_end' ? acc + 1 : acc, 0
@@ -635,12 +685,18 @@ testFrameworks.forEach(({
           done(error)
         }, ({ url }) => url === '/evp_proxy/v2/api/v2/citestcov')
 
-        receiver.assertPayloadReceived(({ headers, payload }) => {
-          assert.notProperty(headers, 'dd-api-key')
-          assert.propertyVal(headers, 'x-datadog-evp-subdomain', 'citestcycle-intake')
-          const eventTypes = payload.events.map(event => event.type)
+        receiver.gatherPayloads(({ url }) => url === '/evp_proxy/v2/api/v2/citestcycle', 5000).then(eventsRequests => {
+          const allHeaders = eventsRequests.map(({ headers }) => headers)
+          allHeaders.forEach(headers => {
+            assert.notProperty(headers, 'dd-api-key')
+            assert.propertyVal(headers, 'x-datadog-evp-subdomain', 'citestcycle-intake')
+          })
+
+          const eventTypes = eventsRequests.map(({ payload }) => payload)
+            .flatMap(({ events }) => events).map(event => event.type)
           assert.includeMembers(eventTypes, ['test', 'test_session_end', 'test_module_end', 'test_suite_end'])
-        }, ({ url }) => url === '/evp_proxy/v2/api/v2/citestcycle').then(() => done()).catch(done)
+          done()
+        }).catch(done)
 
         childProcess = exec(
           runTestsWithCoverageCommand,
@@ -663,13 +719,14 @@ testFrameworks.forEach(({
           ({ url }) => url === '/evp_proxy/v2/api/v2/ci/tests/skippable'
         )
         const coverageRequestPromise = receiver.payloadReceived(({ url }) => url === '/evp_proxy/v2/api/v2/citestcov')
-        const eventsRequestPromise = receiver.payloadReceived(({ url }) => url === '/evp_proxy/v2/api/v2/citestcycle')
+        const eventsRequestsPromise = receiver
+          .gatherPayloads(({ url }) => url === '/evp_proxy/v2/api/v2/citestcycle', 5000)
 
         Promise.all([
           skippableRequestPromise,
           coverageRequestPromise,
-          eventsRequestPromise
-        ]).then(([skippableRequest, coverageRequest, eventsRequest]) => {
+          eventsRequestsPromise
+        ]).then(([skippableRequest, coverageRequest, eventsRequests]) => {
           assert.notProperty(skippableRequest.headers, 'dd-api-key')
           assert.notProperty(skippableRequest.headers, 'dd-application-key')
           assert.propertyVal(skippableRequest.headers, 'x-datadog-evp-subdomain', 'api')
@@ -681,10 +738,17 @@ testFrameworks.forEach(({
           assert.propertyVal(coveragePayload, 'filename', 'coverage1.msgpack')
           assert.propertyVal(coveragePayload, 'type', 'application/msgpack')
 
-          assert.notProperty(eventsRequest.headers, 'dd-api-key')
-          assert.propertyVal(eventsRequest.headers, 'x-datadog-evp-subdomain', 'citestcycle-intake')
-          const eventTypes = eventsRequest.payload.events.map(event => event.type)
-          const skippedTest = eventsRequest.payload.events.find(event =>
+          const allHeaders = eventsRequests.map(({ headers }) => headers)
+          allHeaders.forEach(headers => {
+            assert.notProperty(headers, 'dd-api-key')
+            assert.propertyVal(headers, 'x-datadog-evp-subdomain', 'citestcycle-intake')
+          })
+
+          const events = eventsRequests.map(({ payload }) => payload)
+            .flatMap(({ events }) => events)
+
+          const eventTypes = events.map(event => event.type)
+          const skippedTest = events.find(event =>
             event.content.resource === 'ci-visibility/test/ci-visibility-test.js.ci visibility can report tests'
           )
           assert.notExists(skippedTest)
@@ -711,17 +775,25 @@ testFrameworks.forEach(({
           done(error)
         }, ({ url }) => url === '/evp_proxy/v2/api/v2/ci/tests/skippable')
 
-        receiver.assertPayloadReceived(({ headers, payload }) => {
-          assert.notProperty(headers, 'dd-api-key')
-          assert.propertyVal(headers, 'x-datadog-evp-subdomain', 'citestcycle-intake')
-          const eventTypes = payload.events.map(event => event.type)
+        receiver.gatherPayloads(({ url }) => url === '/evp_proxy/v2/api/v2/citestcycle', 5000).then(eventsRequests => {
+          const allHeaders = eventsRequests.map(({ headers }) => headers)
+          allHeaders.forEach(headers => {
+            assert.notProperty(headers, 'dd-api-key')
+            assert.propertyVal(headers, 'x-datadog-evp-subdomain', 'citestcycle-intake')
+          })
+
+          const events = eventsRequests.map(({ payload }) => payload)
+            .flatMap(({ events }) => events)
+
+          const eventTypes = events.map(event => event.type)
           // because they are not skipped
           assert.includeMembers(eventTypes, ['test', 'test_suite_end', 'test_module_end', 'test_session_end'])
           const numSuites = eventTypes.reduce(
             (acc, type) => type === 'test_suite_end' ? acc + 1 : acc, 0
           )
           assert.equal(numSuites, 2)
-        }, ({ url }) => url === '/evp_proxy/v2/api/v2/citestcycle').then(() => done()).catch(done)
+          done()
+        }).catch(done)
 
         receiver.setSuitesToSkip([{
           type: 'suite',
@@ -747,17 +819,25 @@ testFrameworks.forEach(({
           done(error)
         }, ({ url }) => url === '/evp_proxy/v2/api/v2/ci/tests/skippable')
 
-        receiver.assertPayloadReceived(({ headers, payload }) => {
-          assert.notProperty(headers, 'dd-api-key')
-          assert.propertyVal(headers, 'x-datadog-evp-subdomain', 'citestcycle-intake')
-          const eventTypes = payload.events.map(event => event.type)
+        receiver.gatherPayloads(({ url }) => url === '/evp_proxy/v2/api/v2/citestcycle', 5000).then(eventsRequests => {
+          const allHeaders = eventsRequests.map(({ headers }) => headers)
+          allHeaders.forEach(headers => {
+            assert.notProperty(headers, 'dd-api-key')
+            assert.propertyVal(headers, 'x-datadog-evp-subdomain', 'citestcycle-intake')
+          })
+
+          const events = eventsRequests.map(({ payload }) => payload)
+            .flatMap(({ events }) => events)
+
+          const eventTypes = events.map(event => event.type)
           // because they are not skipped
           assert.includeMembers(eventTypes, ['test', 'test_suite_end', 'test_module_end', 'test_session_end'])
           const numSuites = eventTypes.reduce(
             (acc, type) => type === 'test_suite_end' ? acc + 1 : acc, 0
           )
           assert.equal(numSuites, 2)
-        }, ({ url }) => url === '/evp_proxy/v2/api/v2/citestcycle').then(() => done()).catch(done)
+          done()
+        }).catch(done)
 
         receiver.setSettings({
           code_coverage: true,
