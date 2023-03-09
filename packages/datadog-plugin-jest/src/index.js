@@ -16,6 +16,8 @@ const {
 const { COMPONENT } = require('../../dd-trace/src/constants')
 const id = require('../../dd-trace/src/id')
 
+const isJestWorker = !!process.env.JEST_WORKER_ID
+
 // https://github.com/facebook/jest/blob/d6ad15b0f88a05816c2fe034dd6900d28315d570/packages/jest-worker/src/types.ts#L38
 const CHILD_MESSAGE_END = 2
 
@@ -27,16 +29,18 @@ class JestPlugin extends CiPlugin {
   constructor (...args) {
     super(...args)
 
-    // Used to handle the end of a jest worker to be able to flush
-    const handler = ([message]) => {
-      if (message === CHILD_MESSAGE_END) {
-        this.testSuiteSpan.finish()
-        finishAllTraceSpans(this.testSuiteSpan)
-        this.tracer._exporter.flush()
-        process.removeListener('message', handler)
+    if (isJestWorker) {
+      // Used to handle the end of a jest worker to be able to flush
+      const handler = ([message]) => {
+        if (message === CHILD_MESSAGE_END) {
+          this.testSuiteSpan.finish()
+          finishAllTraceSpans(this.testSuiteSpan)
+          this.tracer._exporter.flush()
+          process.removeListener('message', handler)
+        }
       }
+      process.on('message', handler)
     }
-    process.on('message', handler)
 
     this.testEnvironmentMetadata = getTestEnvironmentMetadata('jest', this.config)
     this.codeOwnersEntries = getCodeOwnersFileEntries()
@@ -133,7 +137,9 @@ class JestPlugin extends CiPlugin {
       // Suites potentially run in a different process than the session,
       // so calling finishAllTraceSpans on the session span is not enough
       finishAllTraceSpans(this.testSuiteSpan)
-      this.tracer._exporter.flush()
+      if (isJestWorker) {
+        this.tracer._exporter.flush()
+      }
     })
 
     /**
