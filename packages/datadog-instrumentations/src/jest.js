@@ -534,11 +534,15 @@ addHook({
   shimmer.wrap(ChildProcessWorker.prototype, '_onMessage', _onMessage => function () {
     const [code, data] = arguments[0]
     if (code === JEST_WORKER_TRACE_PAYLOAD_CODE) { // datadog trace payload
-      workerReportTraceCh.publish(data)
+      sessionAsyncResource.runInAsyncScope(() => {
+        workerReportTraceCh.publish(data)
+      })
       return
     }
     if (code === JEST_WORKER_COVERAGE_PAYLOAD_CODE) { // datadog coverage payload
-      workerReportCoverageCh.publish(data)
+      sessionAsyncResource.runInAsyncScope(() => {
+        workerReportCoverageCh.publish(data)
+      })
       return
     }
     return _onMessage.apply(this, arguments)
