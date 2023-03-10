@@ -261,3 +261,21 @@ addHook({
   file: 'lib/runner/runner.js',
   versions: ['>=1.31.0']
 }, runnerHook)
+
+addHook({
+  name: '@playwright/test',
+  file: 'lib/common/testType.js',
+  versions: ['>=1.18.0']
+}, (testType) => {
+  testType.rootTestType.test = testType.rootTestType.test.extend({
+    ddSetTag: [async ({}, use) => {
+      const setTag = (input) => {
+        console.log('tag set!', input)
+      }
+      await use(setTag)
+    }, { scope: 'worker', option: true }]
+  })
+
+  // testType.rootTestType.test = newTest
+  return testType
+})
