@@ -1,6 +1,7 @@
 'use strict'
 
 require('dd-trace').init()
+console.log('Starting oom')
 
 const { Worker, isMainThread } = require('worker_threads')
 
@@ -19,6 +20,7 @@ let count = 0
 
 function foo (size) {
   count += 1
+  console.log(`count: ${count}`)
   const n = size / 8
   const x = []
   x.length = n
@@ -28,7 +30,8 @@ function foo (size) {
   if (count < maxCount) { setTimeout(() => foo(size), sleepMs) }
 }
 
-const maxCount = process.argv[3] || 12
+const maxCount = process.argv[3] || 1
 const sleepMs = process.argv[4] || 50
 
 setTimeout(() => foo(5 * 1024 * 1024), sleepMs)
+console.log(`oom4 ${sleepMs}`)
