@@ -120,14 +120,6 @@ describe('encode', () => {
     expect(payload[4]).to.equal(0)
   })
 
-  it('should log adding an encoded trace to the buffer', () => {
-    encoder.encode(data)
-
-    const message = logger.debug.firstCall.args[0]()
-
-    expect(message).to.match(/^Adding encoded trace to buffer:(\s[a-f\d]{2})+$/)
-  })
-
   it('should work when the buffer is resized', function () {
     this.timeout(30000)
     // big enough to trigger a resize
