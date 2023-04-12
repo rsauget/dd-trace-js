@@ -13,7 +13,8 @@ function getItrConfiguration ({
   osArchitecture,
   runtimeName,
   runtimeVersion,
-  branch
+  branch,
+  custom
 }, done) {
   const options = {
     path: '/api/v2/libraries/tests/services/setting',
@@ -35,9 +36,15 @@ function getItrConfiguration ({
       process.env.DATADOG_APPLICATION_KEY ||
       process.env.DD_APPLICATION_KEY
 
-    if (!apiKey || !appKey) {
-      return done(new Error('App key or API key undefined'))
+    const messagePrefix = 'Request to settings endpoint was not done because Datadog'
+
+    if (!appKey) {
+      return done(new Error(`${messagePrefix} application key is not defined.`))
     }
+    if (!apiKey) {
+      return done(new Error(`${messagePrefix} API key is not defined.`))
+    }
+
     options.headers['dd-api-key'] = apiKey
     options.headers['dd-application-key'] = appKey
   }
@@ -53,7 +60,8 @@ function getItrConfiguration ({
           'os.version': osVersion,
           'os.architecture': osArchitecture,
           'runtime.name': runtimeName,
-          'runtime.version': runtimeVersion
+          'runtime.version': runtimeVersion,
+          custom
         },
         service,
         env,

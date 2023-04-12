@@ -1,8 +1,17 @@
 'use strict'
 
-const fs = require('fs')
-let templateHtml, templateJson
-function block (req, res, topSpan, abortController) {
+const log = require('../log')
+const blockedTemplates = require('./blocked_templates')
+
+let templateHtml = blockedTemplates.html
+let templateJson = blockedTemplates.json
+
+function block (req, res, rootSpan, abortController) {
+  if (res.headersSent) {
+    log.warn('Cannot send blocking response when headers have already been sent')
+    return
+  }
+
   let type
   let body
 
@@ -17,7 +26,7 @@ function block (req, res, topSpan, abortController) {
     body = templateJson
   }
 
-  topSpan.addTags({
+  rootSpan.addTags({
     'appsec.blocked': 'true'
   })
 
@@ -26,19 +35,21 @@ function block (req, res, topSpan, abortController) {
   res.setHeader('Content-Length', Buffer.byteLength(body))
   res.end(body)
 
-  abortController.abort()
+  if (abortController) {
+    abortController.abort()
+  }
 }
 
-function loadTemplates (config) {
-  templateHtml = fs.readFileSync(config.appsec.blockedTemplateHtml)
-  templateJson = fs.readFileSync(config.appsec.blockedTemplateJson)
-}
-
-async function loadTemplatesAsync (config) {
-  templateHtml = await fs.promises.readFile(config.appsec.blockedTemplateHtml)
-  templateJson = await fs.promises.readFile(config.appsec.blockedTemplateJson)
+function setTemplates (config) {
+  if (config.appsec.blockedTemplateHtml) {
+    templateHtml = config.appsec.blockedTemplateHtml
+  }
+  if (config.appsec.blockedTemplateJson) {
+    templateJson = config.appsec.blockedTemplateJson
+  }
 }
 
 module.exports = {
-  block, loadTemplates, loadTemplatesAsync
+  block,
+  setTemplates
 }

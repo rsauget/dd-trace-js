@@ -1,7 +1,5 @@
 'use strict'
 
-const fs = require('fs')
-const path = require('path')
 const proxyquire = require('proxyquire')
 const log = require('../../src/log')
 const RuleManager = require('../../src/appsec/rule_manager')
@@ -16,22 +14,27 @@ const Config = require('../../src/config')
 const axios = require('axios')
 const getPort = require('get-port')
 
+const blockedTemplate = require('../../src/appsec/blocked_templates')
+
 describe('AppSec Index', () => {
   let config
   let AppSec
   let web
+  let blocking
+
+  const RULES = { rules: [{ a: 1 }] }
 
   beforeEach(() => {
     config = {
       appsec: {
         enabled: true,
-        rules: './path/rules.json',
+        rules: RULES,
         rateLimit: 42,
         wafTimeout: 42,
         obfuscatorKeyRegex: '.*',
         obfuscatorValueRegex: '.*',
-        blockedTemplateHtml: path.join(__dirname, '..', '..', 'src', 'appsec', 'templates', 'blocked.html'),
-        blockedTemplateJson: path.join(__dirname, '..', '..', 'src', 'appsec', 'templates', 'blocked.json')
+        blockedTemplateHtml: blockedTemplate.html,
+        blockedTemplateJson: blockedTemplate.json
       }
     }
 
@@ -39,12 +42,15 @@ describe('AppSec Index', () => {
       root: sinon.stub()
     }
 
+    blocking = {
+      setTemplates: sinon.stub()
+    }
+
     AppSec = proxyquire('../../src/appsec', {
-      '../plugins/util/web': web
+      '../plugins/util/web': web,
+      './blocking': blocking
     })
 
-    sinon.stub(fs, 'readFileSync').returns('{"rules": [{"a": 1}]}')
-    sinon.stub(fs.promises, 'readFile').returns('{"rules": [{"a": 1}]}')
     sinon.stub(RuleManager, 'applyRules')
     sinon.stub(remoteConfig, 'enableAsmData')
     sinon.stub(remoteConfig, 'disableAsmData')
@@ -56,7 +62,6 @@ describe('AppSec Index', () => {
 
   afterEach(() => {
     sinon.restore()
-    AppSec.disable()
   })
 
   describe('enable', () => {
@@ -64,10 +69,8 @@ describe('AppSec Index', () => {
       AppSec.enable(config)
       AppSec.enable(config)
 
-      expect(fs.readFileSync).to.have.been.calledWithExactly('./path/rules.json')
-      expect(fs.readFileSync).to.have.been.calledWithExactly(config.appsec.blockedTemplateHtml)
-      expect(fs.readFileSync).to.have.been.calledWithExactly(config.appsec.blockedTemplateJson)
-      expect(RuleManager.applyRules).to.have.been.calledOnceWithExactly({ rules: [{ a: 1 }] }, config.appsec)
+      expect(blocking.setTemplates).to.have.been.calledOnceWithExactly(config)
+      expect(RuleManager.applyRules).to.have.been.calledOnceWithExactly(RULES, config.appsec)
       expect(remoteConfig.enableAsmData).to.have.been.calledOnce
       expect(Reporter.setRateLimit).to.have.been.calledOnceWithExactly(42)
       expect(incomingHttpRequestStart.subscribe)
@@ -89,49 +92,6 @@ describe('AppSec Index', () => {
       sinon.stub(RuleManager, 'applyRules').throws(err)
 
       AppSec.enable(config)
-
-      expect(log.error).to.have.been.calledTwice
-      expect(log.error.firstCall).to.have.been.calledWithExactly('Unable to start AppSec')
-      expect(log.error.secondCall).to.have.been.calledWithExactly(err)
-      expect(remoteConfig.disableAsmData).to.have.been.calledOnce
-      expect(incomingHttpRequestStart.subscribe).to.not.have.been.called
-      expect(incomingHttpRequestEnd.subscribe).to.not.have.been.called
-      expect(Gateway.manager.addresses).to.be.empty
-    })
-  })
-
-  describe('enableAsync', () => {
-    it('should enable AppSec only once', async () => {
-      await AppSec.enableAsync(config)
-      await AppSec.enableAsync(config)
-
-      expect(fs.readFileSync).not.to.have.been.called
-      expect(fs.promises.readFile).to.have.been.calledThrice
-      expect(fs.promises.readFile).to.have.been.calledWithExactly('./path/rules.json')
-      expect(fs.promises.readFile).to.have.been.calledWithExactly(config.appsec.blockedTemplateHtml)
-      expect(fs.promises.readFile).to.have.been.calledWithExactly(config.appsec.blockedTemplateJson)
-      expect(RuleManager.applyRules).to.have.been.calledOnceWithExactly({ rules: [{ a: 1 }] }, config.appsec)
-      expect(remoteConfig.enableAsmData).to.have.been.calledOnce
-      expect(Reporter.setRateLimit).to.have.been.calledOnceWithExactly(42)
-      expect(incomingHttpRequestStart.subscribe)
-        .to.have.been.calledOnceWithExactly(AppSec.incomingHttpStartTranslator)
-      expect(incomingHttpRequestEnd.subscribe).to.have.been.calledOnceWithExactly(AppSec.incomingHttpEndTranslator)
-      expect(Gateway.manager.addresses).to.have.all.keys(
-        addresses.HTTP_INCOMING_HEADERS,
-        addresses.HTTP_INCOMING_ENDPOINT,
-        addresses.HTTP_INCOMING_RESPONSE_HEADERS,
-        addresses.HTTP_INCOMING_REMOTE_IP
-      )
-    })
-
-    it('should log when enable fails', async () => {
-      sinon.stub(log, 'error')
-      RuleManager.applyRules.restore()
-
-      const err = new Error('Invalid Rules')
-      sinon.stub(RuleManager, 'applyRules').throws(err)
-
-      await AppSec.enableAsync(config)
 
       expect(log.error).to.have.been.calledTwice
       expect(log.error.firstCall).to.have.been.calledWithExactly('Unable to start AppSec')
@@ -436,6 +396,7 @@ describe('AppSec Index', () => {
     })
   })
 })
+
 describe('IP blocking', () => {
   const invalidIp = '1.2.3.4'
   const validIp = '4.3.2.1'
@@ -476,6 +437,10 @@ describe('IP blocking', () => {
     }))
     RuleManager.updateAsmData('apply', ruleData, 'asm_data')
   })
+  afterEach(() => {
+    appsec.disable()
+  })
+
   describe('do not block the request', () => {
     it('should not block the request by default', async () => {
       await axios.get(`http://localhost:${port}/`).then((res) => {
@@ -513,11 +478,8 @@ describe('IP blocking', () => {
     })
 
     describe(`block - ip in header ${ipHeader}`, () => {
-      const templatesPath = path.join(__dirname, '..', '..', 'src', 'appsec', 'templates')
-      const htmlDefaultContent = fs.readFileSync(path.join(templatesPath, 'blocked.html'), 'utf8').toString()
-      const jsonDefaultContent = JSON.parse(
-        fs.readFileSync(path.join(templatesPath, 'blocked.json'), 'utf8').toString()
-      )
+      const htmlDefaultContent = blockedTemplate.html
+      const jsonDefaultContent = JSON.parse(blockedTemplate.json)
 
       it('should block the request with JSON content if no headers', async () => {
         await axios.get(`http://localhost:${port}/`, {

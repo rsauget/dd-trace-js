@@ -1,5 +1,9 @@
 'use strict'
 
+require('../../../../dd-trace/test/setup/tap')
+
+const cp = require('child_process')
+
 const CiVisibilityExporter = require('../../../src/ci-visibility/exporters/ci-visibility-exporter')
 const nock = require('nock')
 
@@ -7,9 +11,15 @@ describe('CI Visibility Exporter', () => {
   const port = 8126
 
   beforeEach(() => {
+    // to make sure `isShallowRepository` in `git.js` returns false
+    sinon.stub(cp, 'execSync').returns('false')
     process.env.DD_API_KEY = '1'
     process.env.DD_APP_KEY = '1'
     nock.cleanAll()
+  })
+
+  afterEach(() => {
+    sinon.restore()
   })
 
   describe('sendGitMetadata', () => {
@@ -83,6 +93,39 @@ describe('CI Visibility Exporter', () => {
       })
     })
     context('if ITR is enabled', () => {
+      it('should add custom configurations', (done) => {
+        let customConfig
+        const scope = nock(`http://localhost:${port}`)
+          .post('/api/v2/libraries/tests/services/setting', function (body) {
+            customConfig = body.data.attributes.configurations.custom
+            return true
+          })
+          .reply(200, JSON.stringify({
+            data: {
+              attributes: {
+                code_coverage: true,
+                tests_skipping: true
+              }
+            }
+          }))
+
+        const ciVisibilityExporter = new CiVisibilityExporter({
+          port,
+          isIntelligentTestRunnerEnabled: true,
+          tags: {
+            'test.configuration.my_custom_config': 'my_custom_config_value'
+          }
+        })
+
+        ciVisibilityExporter.getItrConfiguration({}, (err, itrConfig) => {
+          expect(scope.isDone()).to.be.true
+          expect(customConfig).to.eql({
+            'my_custom_config': 'my_custom_config_value'
+          })
+          done()
+        })
+        ciVisibilityExporter._resolveCanUseCiVisProtocol(true)
+      })
       it('should request the API after EVP proxy is resolved', (done) => {
         const scope = nock(`http://localhost:${port}`)
           .post('/api/v2/libraries/tests/services/setting')
@@ -168,6 +211,52 @@ describe('CI Visibility Exporter', () => {
       })
     })
     context('if ITR is enabled and the tracer can use CI Vis Protocol', () => {
+      it('should add custom configurations', (done) => {
+        let customConfig
+
+        nock(`http://localhost:${port}`)
+          .post('/api/v2/git/repository/search_commits')
+          .reply(200, JSON.stringify({
+            data: []
+          }))
+          .post('/api/v2/git/repository/packfile')
+          .reply(202, '')
+
+        const scope = nock(`http://localhost:${port}`)
+          .post('/api/v2/ci/tests/skippable', function (body) {
+            customConfig = body.data.attributes.configurations.custom
+            return true
+          })
+          .reply(200, JSON.stringify({
+            data: [{
+              type: 'suite',
+              attributes: {
+                suite: 'ci-visibility/test/ci-visibility-test.js'
+              }
+            }]
+          }))
+
+        const ciVisibilityExporter = new CiVisibilityExporter({
+          port,
+          isIntelligentTestRunnerEnabled: true,
+          isGitUploadEnabled: true,
+          tags: {
+            'test.configuration.my_custom_config_2': 'my_custom_config_value_2'
+          }
+        })
+
+        ciVisibilityExporter._itrConfig = { isSuitesSkippingEnabled: true }
+        ciVisibilityExporter._resolveCanUseCiVisProtocol(true)
+
+        ciVisibilityExporter.getSkippableSuites({}, () => {
+          expect(scope.isDone()).to.be.true
+          expect(customConfig).to.eql({
+            'my_custom_config_2': 'my_custom_config_value_2'
+          })
+          done()
+        })
+        ciVisibilityExporter.sendGitMetadata()
+      })
       it('should request the API after git upload promise is resolved', (done) => {
         nock(`http://localhost:${port}`)
           .post('/api/v2/git/repository/search_commits')
@@ -329,9 +418,9 @@ describe('CI Visibility Exporter', () => {
           setUrl: sinon.spy()
         }
         const coverage = {
-          span: {
-            context: () => ({})
-          }
+          traceId: '1',
+          spanId: '2',
+          files: ['example.js']
         }
         const ciVisibilityExporter = new CiVisibilityExporter({ port })
         ciVisibilityExporter._isInitialized = true

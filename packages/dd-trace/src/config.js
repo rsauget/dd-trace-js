@@ -9,7 +9,6 @@ const coalesce = require('koalas')
 const tagger = require('./tagger')
 const { isTrue, isFalse } = require('./util')
 const uuid = require('crypto-randomuuid')
-const path = require('path')
 
 const fromEntries = Object.fromEntries || (entries =>
   entries.reduce((obj, [k, v]) => Object.assign(obj, { [k]: v }), {}))
@@ -22,16 +21,7 @@ function maybeFile (filepath) {
   try {
     return fs.readFileSync(filepath, 'utf8')
   } catch (e) {
-    return undefined
-  }
-}
-
-function maybePath (filepath) {
-  if (!filepath) return
-  try {
-    fs.openSync(filepath, 'r')
-    return filepath
-  } catch (e) {
+    log.error(e)
     return undefined
   }
 }
@@ -52,6 +42,32 @@ function remapify (input, mappings) {
     output[key in mappings ? mappings[key] : key] = value
   }
   return output
+}
+
+function propagationStyle (key, option, defaultValue) {
+  // Extract by key if in object-form value
+  if (typeof option === 'object' && !Array.isArray(option)) {
+    option = option[key]
+  }
+
+  // Should be an array at this point
+  if (Array.isArray(option)) return option.map(v => v.toLowerCase())
+
+  // If it's not an array but not undefined there's something wrong with the input
+  if (typeof option !== 'undefined') {
+    log.warn('Unexpected input for config.tracePropagationStyle')
+  }
+
+  // Otherwise, fallback to env var parsing
+  const envKey = `DD_TRACE_PROPAGATION_STYLE_${key.toUpperCase()}`
+  const envVar = coalesce(process.env[envKey], process.env.DD_TRACE_PROPAGATION_STYLE)
+  if (typeof envVar !== 'undefined') {
+    return envVar.split(',')
+      .filter(v => v !== '')
+      .map(v => v.trim().toLowerCase())
+  }
+
+  return defaultValue
 }
 
 class Config {
@@ -135,7 +151,7 @@ class Config {
 
     const DD_CIVISIBILITY_ITR_ENABLED = coalesce(
       process.env.DD_CIVISIBILITY_ITR_ENABLED,
-      false
+      true
     )
 
     const DD_SERVICE = options.service ||
@@ -171,6 +187,10 @@ class Config {
       process.env.DD_TRACE_TELEMETRY_ENABLED,
       !process.env.AWS_LAMBDA_FUNCTION_NAME
     )
+    const DD_TELEMETRY_DEBUG_ENABLED = coalesce(
+      process.env.DD_TELEMETRY_DEBUG_ENABLED,
+      false
+    )
     const DD_TRACE_AGENT_PROTOCOL_VERSION = coalesce(
       options.protocolVersion,
       process.env.DD_TRACE_AGENT_PROTOCOL_VERSION,
@@ -195,15 +215,36 @@ class Config {
       process.env.DD_TRACE_CLIENT_IP_HEADER,
       null
     )
+    // TODO: Remove the experimental env vars as a major?
     const DD_TRACE_B3_ENABLED = coalesce(
       options.experimental && options.experimental.b3,
       process.env.DD_TRACE_EXPERIMENTAL_B3_ENABLED,
       false
     )
-    const DD_TRACE_TRACEPARENT_ENABLED = coalesce(
-      options.experimental && options.experimental.traceparent,
-      process.env.DD_TRACE_EXPERIMENTAL_TRACEPARENT_ENABLED,
-      false
+    const defaultPropagationStyle = ['tracecontext', 'datadog']
+    if (isTrue(DD_TRACE_B3_ENABLED)) {
+      defaultPropagationStyle.push('b3')
+      defaultPropagationStyle.push('b3 single header')
+    }
+    if (process.env.DD_TRACE_PROPAGATION_STYLE && (
+      process.env.DD_TRACE_PROPAGATION_STYLE_INJECT ||
+      process.env.DD_TRACE_PROPAGATION_STYLE_EXTRACT
+    )) {
+      log.warn(
+        'Use either the DD_TRACE_PROPAGATION_STYLE environment variable or separate ' +
+        'DD_TRACE_PROPAGATION_STYLE_INJECT and DD_TRACE_PROPAGATION_STYLE_EXTRACT ' +
+        'environment variables'
+      )
+    }
+    const DD_TRACE_PROPAGATION_STYLE_INJECT = propagationStyle(
+      'inject',
+      options.tracePropagationStyle,
+      defaultPropagationStyle
+    )
+    const DD_TRACE_PROPAGATION_STYLE_EXTRACT = propagationStyle(
+      'extract',
+      options.tracePropagationStyle,
+      defaultPropagationStyle
     )
     const DD_TRACE_RUNTIME_ID_ENABLED = coalesce(
       options.experimental && options.experimental.runtimeId,
@@ -228,6 +269,18 @@ class Config {
     const DD_TRACE_STATS_COMPUTATION_ENABLED = coalesce(
       options.stats,
       process.env.DD_TRACE_STATS_COMPUTATION_ENABLED,
+      false
+    )
+
+    const DD_TRACE_128_BIT_TRACEID_GENERATION_ENABLED = coalesce(
+      options.traceId128BitGenerationEnabled,
+      process.env.DD_TRACE_128_BIT_TRACEID_GENERATION_ENABLED,
+      false
+    )
+
+    const DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED = coalesce(
+      options.traceId128BitLoggingEnabled,
+      process.env.DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED,
       false
     )
 
@@ -275,14 +328,12 @@ ken|consumer_?(?:id|key|secret)|sign(?:ed|ature)?|auth(?:entication|orization)?)
 |[\\-]{5}BEGIN[a-z\\s]+PRIVATE\\sKEY[\\-]{5}[^\\-]+[\\-]{5}END[a-z\\s]+PRIVATE\\sKEY|ssh-rsa\\s*[a-z0-9\\/\\.+]{100,}`
     )
     const DD_APPSEC_HTTP_BLOCKED_TEMPLATE_HTML = coalesce(
-      maybePath(appsec.blockedTemplateHtml),
-      maybePath(process.env.DD_APPSEC_HTTP_BLOCKED_TEMPLATE_HTML),
-      path.join(__dirname, 'appsec', 'templates', 'blocked.html')
+      maybeFile(appsec.blockedTemplateHtml),
+      maybeFile(process.env.DD_APPSEC_HTTP_BLOCKED_TEMPLATE_HTML)
     )
     const DD_APPSEC_HTTP_BLOCKED_TEMPLATE_JSON = coalesce(
-      maybePath(appsec.blockedTemplateJson),
-      maybePath(process.env.DD_APPSEC_HTTP_BLOCKED_TEMPLATE_JSON),
-      path.join(__dirname, 'appsec', 'templates', 'blocked.json')
+      maybeFile(appsec.blockedTemplateJson),
+      maybeFile(process.env.DD_APPSEC_HTTP_BLOCKED_TEMPLATE_JSON)
     )
 
     const inAWSLambda = process.env.AWS_LAMBDA_FUNCTION_NAME !== undefined
@@ -304,6 +355,10 @@ ken|consumer_?(?:id|key|secret)|sign(?:ed|ature)?|auth(?:entication|orization)?)
       (iastOptions === true || iastOptions.enabled === true),
       process.env.DD_IAST_ENABLED,
       false
+    )
+    const DD_TELEMETRY_LOG_COLLECTION_ENABLED = coalesce(
+      process.env.DD_TELEMETRY_LOG_COLLECTION_ENABLED,
+      DD_IAST_ENABLED
     )
 
     const defaultIastRequestSampling = 30
@@ -327,9 +382,15 @@ ken|consumer_?(?:id|key|secret)|sign(?:ed|ature)?|auth(?:entication|orization)?)
       2
     )
 
+    const DD_IAST_DEDUPLICATION_ENABLED = coalesce(
+      iastOptions && iastOptions.deduplicationEnabled,
+      process.env.DD_IAST_DEDUPLICATION_ENABLED && isTrue(process.env.DD_IAST_DEDUPLICATION_ENABLED),
+      true
+    )
+
     const DD_CIVISIBILITY_GIT_UPLOAD_ENABLED = coalesce(
       process.env.DD_CIVISIBILITY_GIT_UPLOAD_ENABLED,
-      false
+      true
     )
 
     const ingestion = options.ingestion || {}
@@ -389,9 +450,11 @@ ken|consumer_?(?:id|key|secret)|sign(?:ed|ature)?|auth(?:entication|orization)?)
       port: String(coalesce(dogstatsd.port, process.env.DD_DOGSTATSD_PORT, 8125))
     }
     this.runtimeMetrics = isTrue(DD_RUNTIME_METRICS_ENABLED)
+    this.tracePropagationStyle = {
+      inject: DD_TRACE_PROPAGATION_STYLE_INJECT,
+      extract: DD_TRACE_PROPAGATION_STYLE_EXTRACT
+    }
     this.experimental = {
-      b3: isTrue(DD_TRACE_B3_ENABLED),
-      traceparent: isTrue(DD_TRACE_TRACEPARENT_ENABLED),
       runtimeId: isTrue(DD_TRACE_RUNTIME_ID_ENABLED),
       exporter: DD_TRACE_EXPORTER,
       enableGetRumData: isTrue(DD_TRACE_GET_RUM_DATA_ENABLED)
@@ -407,12 +470,16 @@ ken|consumer_?(?:id|key|secret)|sign(?:ed|ature)?|auth(?:entication|orization)?)
     this.lookup = options.lookup
     this.startupLogs = isTrue(DD_TRACE_STARTUP_LOGS)
     // Disabled for CI Visibility's agentless
-    this.telemetryEnabled = DD_TRACE_EXPORTER !== 'datadog' && isTrue(DD_TRACE_TELEMETRY_ENABLED)
+    this.telemetry = {
+      enabled: DD_TRACE_EXPORTER !== 'datadog' && isTrue(DD_TRACE_TELEMETRY_ENABLED),
+      logCollection: isTrue(DD_TELEMETRY_LOG_COLLECTION_ENABLED),
+      debug: isTrue(DD_TELEMETRY_DEBUG_ENABLED)
+    }
     this.protocolVersion = DD_TRACE_AGENT_PROTOCOL_VERSION
     this.tagsHeaderMaxLength = parseInt(DD_TRACE_X_DATADOG_TAGS_MAX_LENGTH)
     this.appsec = {
       enabled: DD_APPSEC_ENABLED,
-      rules: DD_APPSEC_RULES,
+      rules: DD_APPSEC_RULES ? safeJsonParse(maybeFile(DD_APPSEC_RULES)) : require('./appsec/recommended.json'),
       rateLimit: DD_APPSEC_TRACE_RATE_LIMIT,
       wafTimeout: DD_APPSEC_WAF_TIMEOUT,
       obfuscatorKeyRegex: DD_APPSEC_OBFUSCATION_PARAMETER_KEY_REGEXP,
@@ -428,18 +495,22 @@ ken|consumer_?(?:id|key|secret)|sign(?:ed|ature)?|auth(?:entication|orization)?)
       enabled: isTrue(DD_IAST_ENABLED),
       requestSampling: DD_IAST_REQUEST_SAMPLING,
       maxConcurrentRequests: DD_IAST_MAX_CONCURRENT_REQUESTS,
-      maxContextOperations: DD_IAST_MAX_CONTEXT_OPERATIONS
+      maxContextOperations: DD_IAST_MAX_CONTEXT_OPERATIONS,
+      deduplicationEnabled: DD_IAST_DEDUPLICATION_ENABLED
     }
 
     this.isCiVisibility = isTrue(DD_IS_CIVISIBILITY)
 
     this.isIntelligentTestRunnerEnabled = this.isCiVisibility && isTrue(DD_CIVISIBILITY_ITR_ENABLED)
     this.isGitUploadEnabled = this.isCiVisibility &&
-      (this.isIntelligentTestRunnerEnabled || isTrue(DD_CIVISIBILITY_GIT_UPLOAD_ENABLED))
+      (this.isIntelligentTestRunnerEnabled && !isFalse(DD_CIVISIBILITY_GIT_UPLOAD_ENABLED))
 
     this.stats = {
       enabled: isTrue(DD_TRACE_STATS_COMPUTATION_ENABLED)
     }
+
+    this.traceId128BitGenerationEnabled = isTrue(DD_TRACE_128_BIT_TRACEID_GENERATION_ENABLED)
+    this.traceId128BitLoggingEnabled = isTrue(DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED)
 
     tagger.add(this.tags, {
       service: this.service,

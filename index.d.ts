@@ -1,4 +1,4 @@
-import { ClientRequest, IncomingMessage, ServerResponse } from "http";
+import { ClientRequest, IncomingMessage, OutgoingMessage, ServerResponse } from "http";
 import { LookupFunction } from 'net';
 import * as opentracing from "opentracing";
 import { SpanOptions } from "opentracing/lib/tracer";
@@ -98,7 +98,7 @@ export declare interface Tracer extends opentracing.Tracer {
    * * The function doesn't accept a callback and doesn't return a promise, in
    * which case the span will finish at the end of the function execution.
    */
-  wrap<T = (...args: any[]) => any> (name: string, fn: T, requiresParent?: boolean): T;
+  wrap<T = (...args: any[]) => any> (name: string, fn: T): T;
   wrap<T = (...args: any[]) => any> (name: string, options: TraceOptions & SpanOptions, fn: T): T;
   wrap<T = (...args: any[]) => any> (name: string, options: (...args: any[]) => TraceOptions & SpanOptions, fn: T): T;
 
@@ -219,6 +219,21 @@ export declare interface SpanSamplingRule {
    * Operation name or pattern on which to apply this rule. The rule will apply to all operation names if not provided.
    */
   name?: string
+}
+
+/**
+ * Selection and priority order of context propagation injection and extraction mechanisms.
+ */
+export declare interface PropagationStyle {
+  /**
+   * Selection of context propagation injection mechanisms.
+   */
+  inject: string[],
+
+  /**
+   * Selection and priority order of context propagation extraction mechanisms.
+   */
+  extract: string[]
 }
 
 /**
@@ -423,7 +438,11 @@ export declare interface TracerOptions {
        * Controls how many code vulnerabilities can be detected in the same request
        * @default 2
        */
-      maxContextOperations?: number
+      maxContextOperations?: number,
+      /**
+       * Whether to enable vulnerability deduplication
+       */
+      deduplicationEnabled?: boolean
     }
   };
 
@@ -550,6 +569,11 @@ export declare interface TracerOptions {
    * Custom header name to source the http.client_ip tag from.
    */
   clientIpHeader?: string,
+
+  /**
+   * The selection and priority order of context propagation injection and extraction mechanisms.
+   */
+  propagationStyle?: string[] | PropagationStyle
 }
 
 /**
@@ -623,6 +647,35 @@ export declare interface Appsec {
    * @beta This method is in beta and could change in future versions.
    */
   trackCustomEvent(eventName: string, metadata?: { [key: string]: string }): void
+
+  /**
+   * Checks if the passed user should be blocked according to AppSec rules.
+   * If no user is linked to the current trace, will link the passed user to it.
+   * @param {User} user Properties of the authenticated user. Accepts custom fields.
+   * @return {boolean} Indicates whether the user should be blocked.
+   *
+   * @beta This method is in beta and could change in the future
+   */
+  isUserBlocked(user: User): boolean
+
+  /**
+   * Sends a "blocked" template response based on the request accept header and ends the response.
+   * **You should stop processing the request after calling this function!**
+   * @param {IncomingMessage} req Can be passed to force which request to act on. Optional.
+   * @param {OutgoingMessage} res Can be passed to force which response to act on. Optional.
+   * @return {boolean} Indicates if the action was successful.
+   *
+   * @beta This method is in beta and could change in the future
+   */
+  blockRequest(req?: IncomingMessage, res?: OutgoingMessage): boolean
+
+  /**
+   * Links an authenticated user to the current trace.
+   * @param {User} user Properties of the authenticated user. Accepts custom fields.
+   *
+   * @beta This method is in beta and could change in the future
+   */
+  setUser(user: User): void
 }
 
 /** @hidden */
@@ -818,7 +871,7 @@ declare namespace plugins {
       /**
        * Hook to execute just before the request span finishes.
        */
-      request?: (span?: opentracing.Span, req?: IncomingMessage, res?: ServerResponse) => any;
+      request?: (span?: Span, req?: IncomingMessage, res?: ServerResponse) => any;
     };
 
     /**
@@ -854,7 +907,7 @@ declare namespace plugins {
       /**
        * Hook to execute just before the request span finishes.
        */
-      request?: (span?: opentracing.Span, req?: ClientRequest, res?: IncomingMessage) => any;
+      request?: (span?: Span, req?: ClientRequest, res?: IncomingMessage) => any;
     };
 
     /**
@@ -944,7 +997,7 @@ declare namespace plugins {
       /**
        * Hook to execute just before the aws span finishes.
        */
-      request?: (span?: opentracing.Span, response?: anyObject) => any;
+      request?: (span?: Span, response?: anyObject) => any;
     };
 
     /**
@@ -1013,7 +1066,7 @@ declare namespace plugins {
       /**
        * Hook to execute just before the query span finishes.
        */
-      query?: (span?: opentracing.Span, params?: TransportRequestParams) => any;
+      query?: (span?: Span, params?: TransportRequestParams) => any;
     };
   }
 
@@ -1182,7 +1235,7 @@ declare namespace plugins {
        * Hook to execute just before the request span finishes.
        */
       request?: (
-        span?: opentracing.Span,
+        span?: Span,
         req?: IncomingMessage | ClientRequest,
         res?: ServerResponse | IncomingMessage
       ) => any;
@@ -1375,7 +1428,7 @@ declare namespace plugins {
       /**
        * Hook to execute just before the request span finishes.
        */
-      request?: (span?: opentracing.Span, req?: IncomingMessage, res?: ServerResponse) => any;
+      request?: (span?: Span, req?: IncomingMessage, res?: ServerResponse) => any;
     };
   }
 
@@ -1494,12 +1547,12 @@ declare namespace plugins {
       /**
        * Hook to execute just when the span is created.
        */
-      receive?: (span?: opentracing.Span, request?: any) => any;
+      receive?: (span?: Span, request?: any) => any;
 
       /**
        * Hook to execute just when the span is finished.
        */
-      reply?: (span?: opentracing.Span, request?: any, response?: any) => any;
+      reply?: (span?: Span, request?: any, response?: any) => any;
     };
   }
 

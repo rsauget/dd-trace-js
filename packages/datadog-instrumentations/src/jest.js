@@ -2,7 +2,11 @@
 const { addHook, channel, AsyncResource } = require('./helpers/instrument')
 const shimmer = require('../../datadog-shimmer')
 const log = require('../../dd-trace/src/log')
-const { getCoveredFilenamesFromCoverage } = require('../../dd-trace/src/plugins/util/test')
+const {
+  getCoveredFilenamesFromCoverage,
+  JEST_WORKER_TRACE_PAYLOAD_CODE,
+  JEST_WORKER_COVERAGE_PAYLOAD_CODE
+} = require('../../dd-trace/src/plugins/util/test')
 
 const testSessionStartCh = channel('ci:jest:session:start')
 const testSessionFinishCh = channel('ci:jest:session:finish')
@@ -11,6 +15,10 @@ const testSessionConfigurationCh = channel('ci:jest:session:configuration')
 
 const testSuiteStartCh = channel('ci:jest:test-suite:start')
 const testSuiteFinishCh = channel('ci:jest:test-suite:finish')
+
+const workerReportTraceCh = channel('ci:jest:worker-report:trace')
+const workerReportCoverageCh = channel('ci:jest:worker-report:coverage')
+
 const testSuiteCodeCoverageCh = channel('ci:jest:test-suite:code-coverage')
 
 const testStartCh = channel('ci:jest:test:start')
@@ -72,7 +80,7 @@ function getTestEnvironmentOptions (config) {
   return {}
 }
 
-function getWrappedEnvironment (BaseEnvironment) {
+function getWrappedEnvironment (BaseEnvironment, jestVersion) {
   return class DatadogEnvironment extends BaseEnvironment {
     constructor (config, context) {
       super(config, context)
@@ -116,7 +124,8 @@ function getWrappedEnvironment (BaseEnvironment) {
             name: getJestTestName(event.test),
             suite: this.testSuite,
             runner: 'jest-circus',
-            testParameters
+            testParameters,
+            frameworkVersion: jestVersion
           })
           originalTestFns.set(event.test, event.test.fn)
           event.test.fn = asyncResource.bind(event.test.fn)
@@ -142,7 +151,8 @@ function getWrappedEnvironment (BaseEnvironment) {
           testSkippedCh.publish({
             name: getJestTestName(event.test),
             suite: this.testSuite,
-            runner: 'jest-circus'
+            runner: 'jest-circus',
+            frameworkVersion: jestVersion
           })
         })
       }
@@ -150,14 +160,14 @@ function getWrappedEnvironment (BaseEnvironment) {
   }
 }
 
-function getTestEnvironment (pkg) {
+function getTestEnvironment (pkg, jestVersion) {
   if (pkg.default) {
-    const wrappedTestEnvironment = getWrappedEnvironment(pkg.default)
+    const wrappedTestEnvironment = getWrappedEnvironment(pkg.default, jestVersion)
     pkg.default = wrappedTestEnvironment
     pkg.TestEnvironment = wrappedTestEnvironment
     return pkg
   }
-  return getWrappedEnvironment(pkg)
+  return getWrappedEnvironment(pkg, jestVersion)
 }
 
 addHook({
@@ -170,7 +180,7 @@ addHook({
   versions: ['>=24.8.0']
 }, getTestEnvironment)
 
-function cliWrapper (cli) {
+function cliWrapper (cli, jestVersion) {
   const wrapped = shimmer.wrap(cli, 'runCLI', runCLI => async function () {
     let onDone
     const configurationPromise = new Promise((resolve) => {
@@ -212,22 +222,11 @@ function cliWrapper (cli) {
         log.error(err)
       }
     }
-
     const isSuitesSkipped = !!skippableSuites.length
 
-    let testFrameworkVersion
-    try {
-      testFrameworkVersion = this.getVersion()
-    } catch (e) {
-      try {
-        testFrameworkVersion = this.default.getVersion()
-      } catch (e) {
-        // ignore errors
-      }
-    }
     const processArgv = process.argv.slice(2).join(' ')
     sessionAsyncResource.runInAsyncScope(() => {
-      testSessionStartCh.publish({ command: `jest ${processArgv}`, testFrameworkVersion })
+      testSessionStartCh.publish({ command: `jest ${processArgv}`, frameworkVersion: jestVersion })
     })
 
     const result = await runCLI.apply(this, arguments)
@@ -295,7 +294,7 @@ addHook({
   versions: ['>=24.8.0']
 }, cliWrapper)
 
-function jestAdapterWrapper (jestAdapter) {
+function jestAdapterWrapper (jestAdapter, jestVersion) {
   const adapter = jestAdapter.default ? jestAdapter.default : jestAdapter
   const newAdapter = shimmer.wrap(adapter, function () {
     const environment = arguments[2]
@@ -306,7 +305,8 @@ function jestAdapterWrapper (jestAdapter) {
     return asyncResource.runInAsyncScope(() => {
       testSuiteStartCh.publish({
         testSuite: environment.testSuite,
-        testEnvironmentOptions: environment.testEnvironmentOptions
+        testEnvironmentOptions: environment.testEnvironmentOptions,
+        frameworkVersion: jestVersion
       })
       return adapter.apply(this, arguments).then(suiteResults => {
         const { numFailingTests, skipped, failureMessage: errorMessage } = suiteResults
@@ -316,7 +316,6 @@ function jestAdapterWrapper (jestAdapter) {
         } else if (numFailingTests !== 0) {
           status = 'fail'
         }
-        testSuiteFinishCh.publish({ status, errorMessage })
 
         const coverageFiles = getCoveredFilenamesFromCoverage(environment.global.__coverage__)
           .map(filename => getTestSuitePath(filename, environment.rootDir))
@@ -333,6 +332,7 @@ function jestAdapterWrapper (jestAdapter) {
             testSuiteCodeCoverageCh.publish([...coverageFiles, environment.testSuite])
           })
         }
+        testSuiteFinishCh.publish({ status, errorMessage })
         return suiteResults
       })
     })
@@ -447,7 +447,7 @@ addHook({
   versions: ['24.8.0 - 24.9.0']
 }, jestConfigSyncWrapper)
 
-function jasmineAsyncInstallWraper (jasmineAsyncInstallExport) {
+function jasmineAsyncInstallWraper (jasmineAsyncInstallExport, jestVersion) {
   return function (globalConfig, globalInput) {
     globalInput._ddtrace = global._ddtrace
     shimmer.wrap(globalInput.jasmine.Spec.prototype, 'execute', execute => function (onComplete) {
@@ -457,7 +457,8 @@ function jasmineAsyncInstallWraper (jasmineAsyncInstallExport) {
         testStartCh.publish({
           name: this.getFullName(),
           suite: testSuite,
-          runner: 'jest-jasmine2'
+          runner: 'jest-jasmine2',
+          frameworkVersion: jestVersion
         })
         const spec = this
         const callback = asyncResource.bind(function () {
@@ -481,3 +482,28 @@ addHook({
   versions: ['>=24.8.0'],
   file: 'build/jasmineAsyncInstall.js'
 }, jasmineAsyncInstallWraper)
+
+addHook({
+  name: 'jest-worker',
+  versions: ['>=24.9.0'],
+  file: 'build/workers/ChildProcessWorker.js'
+}, (childProcessWorker) => {
+  const ChildProcessWorker = childProcessWorker.default
+  shimmer.wrap(ChildProcessWorker.prototype, '_onMessage', _onMessage => function () {
+    const [code, data] = arguments[0]
+    if (code === JEST_WORKER_TRACE_PAYLOAD_CODE) { // datadog trace payload
+      sessionAsyncResource.runInAsyncScope(() => {
+        workerReportTraceCh.publish(data)
+      })
+      return
+    }
+    if (code === JEST_WORKER_COVERAGE_PAYLOAD_CODE) { // datadog coverage payload
+      sessionAsyncResource.runInAsyncScope(() => {
+        workerReportCoverageCh.publish(data)
+      })
+      return
+    }
+    return _onMessage.apply(this, arguments)
+  })
+  return childProcessWorker
+})

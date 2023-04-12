@@ -5,72 +5,40 @@ const {
   TEST_STATUS,
   JEST_TEST_RUNNER,
   finishAllTraceSpans,
-  getTestEnvironmentMetadata,
-  getTestParentSpan,
-  getTestSessionCommonTags,
-  getTestModuleCommonTags,
   getTestSuiteCommonTags,
   addIntelligentTestRunnerSpanTags,
   TEST_PARAMETERS,
-  getCodeOwnersFileEntries,
-  TEST_SESSION_ID,
-  TEST_MODULE_ID,
-  TEST_SUITE_ID,
   TEST_COMMAND,
-  TEST_BUNDLE
+  TEST_FRAMEWORK_VERSION
 } = require('../../dd-trace/src/plugins/util/test')
 const { COMPONENT } = require('../../dd-trace/src/constants')
+const id = require('../../dd-trace/src/id')
+
+const isJestWorker = !!process.env.JEST_WORKER_ID
 
 // https://github.com/facebook/jest/blob/d6ad15b0f88a05816c2fe034dd6900d28315d570/packages/jest-worker/src/types.ts#L38
 const CHILD_MESSAGE_END = 2
 
 class JestPlugin extends CiPlugin {
-  static get name () {
+  static get id () {
     return 'jest'
   }
 
   constructor (...args) {
     super(...args)
 
-    // Used to handle the end of a jest worker to be able to flush
-    const handler = ([message]) => {
-      if (message === CHILD_MESSAGE_END) {
-        this.tracer._exporter.flush(() => {
-          // eslint-disable-next-line
-          // https://github.com/facebook/jest/blob/24ed3b5ecb419c023ee6fdbc838f07cc028fc007/packages/jest-worker/src/workers/processChild.ts#L118-L133
-          // Only after the flush is done we clean up open handles
-          // so the worker process can hopefully exit gracefully
+    if (isJestWorker) {
+      // Used to handle the end of a jest worker to be able to flush
+      const handler = ([message]) => {
+        if (message === CHILD_MESSAGE_END) {
+          this.testSuiteSpan.finish()
+          finishAllTraceSpans(this.testSuiteSpan)
+          this.tracer._exporter.flush()
           process.removeListener('message', handler)
-        })
+        }
       }
+      process.on('message', handler)
     }
-    process.on('message', handler)
-
-    this.testEnvironmentMetadata = getTestEnvironmentMetadata('jest', this.config)
-    this.codeOwnersEntries = getCodeOwnersFileEntries()
-
-    this.addSub('ci:jest:session:start', ({ command, testFrameworkVersion }) => {
-      const childOf = getTestParentSpan(this.tracer)
-      const testSessionSpanMetadata = getTestSessionCommonTags(command, testFrameworkVersion)
-      const testModuleSpanMetadata = getTestModuleCommonTags(command, testFrameworkVersion)
-
-      this.testSessionSpan = this.tracer.startSpan('jest.test_session', {
-        childOf,
-        tags: {
-          [COMPONENT]: this.constructor.name,
-          ...this.testEnvironmentMetadata,
-          ...testSessionSpanMetadata
-        }
-      })
-      this.testModuleSpan = this.tracer.startSpan('jest.test_module', {
-        childOf: this.testSessionSpan,
-        tags: {
-          [COMPONENT]: this.constructor.name,
-          ...this.testEnvironmentMetadata,
-          ...testModuleSpanMetadata
-        }
-      })
-    })
 
     this.addSub('ci:jest:session:finish', ({
       status,
@@ -105,43 +73,71 @@ class JestPlugin extends CiPlugin {
       })
     })
 
-    this.addSub('ci:jest:test-suite:start', ({ testSuite, testEnvironmentOptions }) => {
+    this.addSub('ci:jest:test-suite:start', ({ testSuite, testEnvironmentOptions, frameworkVersion }) => {
       const {
         _ddTestSessionId: testSessionId,
         _ddTestCommand: testCommand,
         _ddTestModuleId: testModuleId
       } = testEnvironmentOptions
 
-      const store = storage.getStore()
-
       const testSessionSpanContext = this.tracer.extract('text_map', {
         'x-datadog-trace-id': testSessionId,
         'x-datadog-parent-id': testModuleId
       })
 
-      const testSuiteMetadata = getTestSuiteCommonTags(testCommand, this.tracer._version, testSuite)
+      const testSuiteMetadata = getTestSuiteCommonTags(testCommand, frameworkVersion, testSuite, 'jest')
 
-      const testSuiteSpan = this.tracer.startSpan('jest.test_suite', {
+      this.testSuiteSpan = this.tracer.startSpan('jest.test_suite', {
         childOf: testSessionSpanContext,
         tags: {
-          [COMPONENT]: this.constructor.name,
+          [COMPONENT]: this.constructor.id,
           ...this.testEnvironmentMetadata,
           ...testSuiteMetadata
         }
       })
-      this.enter(testSuiteSpan, store)
+    })
+
+    this.addSub('ci:jest:worker-report:trace', traces => {
+      const formattedTraces = JSON.parse(traces).map(trace =>
+        trace.map(span => ({
+          ...span,
+          span_id: id(span.span_id),
+          trace_id: id(span.trace_id),
+          parent_id: id(span.parent_id)
+        }))
+      )
+
+      formattedTraces.forEach(trace => {
+        this.tracer._exporter.export(trace)
+      })
+    })
+
+    this.addSub('ci:jest:worker-report:coverage', data => {
+      const formattedCoverages = JSON.parse(data).map(coverage => ({
+        traceId: id(coverage.traceId),
+        spanId: id(coverage.spanId),
+        files: coverage.files
+      }))
+      formattedCoverages.forEach(formattedCoverage => {
+        this.tracer._exporter.exportCoverage(formattedCoverage)
+      })
     })
 
     this.addSub('ci:jest:test-suite:finish', ({ status, errorMessage }) => {
-      const testSuiteSpan = storage.getStore().span
-      testSuiteSpan.setTag(TEST_STATUS, status)
+      this.testSuiteSpan.setTag(TEST_STATUS, status)
       if (errorMessage) {
-        testSuiteSpan.setTag('error', new Error(errorMessage))
+        this.testSuiteSpan.setTag('error', new Error(errorMessage))
       }
-      testSuiteSpan.finish()
+      this.testSuiteSpan.finish()
       // Suites potentially run in a different process than the session,
       // so calling finishAllTraceSpans on the session span is not enough
-      finishAllTraceSpans(testSuiteSpan)
+      finishAllTraceSpans(this.testSuiteSpan)
+      // Flushing within jest workers is cheap, as it's just interprocess communication
+      // We do not want to flush after every suite if jest is running tests serially,
+      // as every flush is an HTTP request.
+      if (isJestWorker) {
+        this.tracer._exporter.flush()
+      }
     })
 
     /**
@@ -150,8 +146,12 @@ class JestPlugin extends CiPlugin {
      * fetching the ITR config.
      */
     this.addSub('ci:jest:test-suite:code-coverage', (coverageFiles) => {
-      const testSuiteSpan = storage.getStore().span
-      this.tracer._exporter.exportCoverage({ span: testSuiteSpan, coverageFiles })
+      const formattedCoverage = {
+        traceId: this.testSuiteSpan.context()._traceId,
+        spanId: this.testSuiteSpan.context()._spanId,
+        files: coverageFiles
+      }
+      this.tracer._exporter.exportCoverage(formattedCoverage)
     })
 
     this.addSub('ci:jest:test:start', (test) => {
@@ -170,9 +170,12 @@ class JestPlugin extends CiPlugin {
 
     this.addSub('ci:jest:test:err', (error) => {
       if (error) {
-        const span = storage.getStore().span
-        span.setTag(TEST_STATUS, 'fail')
-        span.setTag('error', error)
+        const store = storage.getStore()
+        if (store && store.span) {
+          const span = store.span
+          span.setTag(TEST_STATUS, 'fail')
+          span.setTag('error', error)
+        }
       }
     })
 
@@ -184,34 +187,15 @@ class JestPlugin extends CiPlugin {
   }
 
   startTestSpan (test) {
-    let childOf
-    const suiteTags = {}
-    const store = storage.getStore()
-    const testSuiteSpan = store ? store.span : undefined
-    if (testSuiteSpan) {
-      const testSuiteId = testSuiteSpan.context().toSpanId()
-      suiteTags[TEST_SUITE_ID] = testSuiteId
-      suiteTags[TEST_SESSION_ID] = testSuiteSpan.context().toTraceId()
-      suiteTags[TEST_MODULE_ID] = testSuiteSpan.context()._parentId.toString(10)
-      suiteTags[TEST_COMMAND] = testSuiteSpan.context()._tags[TEST_COMMAND]
-      suiteTags[TEST_BUNDLE] = testSuiteSpan.context()._tags[TEST_COMMAND]
-      // TODO: move this logic to CiPlugin once every framework supports test suite level visibility
-      // This is a hack to get good time resolution on test events, while keeping
-      // the test event as the root span of its trace.
-      childOf = getTestParentSpan(this.tracer)
-      childOf._trace.startTime = testSuiteSpan.context()._trace.startTime
-      childOf._trace.ticks = testSuiteSpan.context()._trace.ticks
-    }
-
-    const { suite, name, runner, testParameters } = test
+    const { suite, name, runner, testParameters, frameworkVersion } = test
 
     const extraTags = {
       [JEST_TEST_RUNNER]: runner,
       [TEST_PARAMETERS]: testParameters,
-      ...suiteTags
+      [TEST_FRAMEWORK_VERSION]: frameworkVersion
     }
 
-    return super.startTestSpan(name, suite, extraTags, childOf)
+    return super.startTestSpan(name, suite, this.testSuiteSpan, extraTags)
   }
 }
 

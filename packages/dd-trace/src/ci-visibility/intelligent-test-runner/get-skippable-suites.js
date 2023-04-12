@@ -11,7 +11,8 @@ function getSkippableSuites ({
   osPlatform,
   osArchitecture,
   runtimeName,
-  runtimeVersion
+  runtimeVersion,
+  custom
 }, done) {
   const options = {
     path: '/api/v2/ci/tests/skippable',
@@ -19,7 +20,7 @@ function getSkippableSuites ({
     headers: {
       'Content-Type': 'application/json'
     },
-    timeout: 15000,
+    timeout: 20000,
     url
   }
 
@@ -34,9 +35,15 @@ function getSkippableSuites ({
       process.env.DATADOG_APPLICATION_KEY ||
       process.env.DD_APPLICATION_KEY
 
-    if (!apiKey || !appKey) {
-      return done(new Error('App key or API key undefined'))
+    const messagePrefix = 'Skippable suites were not fetched because Datadog'
+
+    if (!appKey) {
+      return done(new Error(`${messagePrefix} application key is not defined.`))
     }
+    if (!apiKey) {
+      return done(new Error(`${messagePrefix} API key is not defined.`))
+    }
+
     options.headers['dd-api-key'] = apiKey
     options.headers['dd-application-key'] = appKey
   }
@@ -51,7 +58,8 @@ function getSkippableSuites ({
           'os.version': osVersion,
           'os.architecture': osArchitecture,
           'runtime.name': runtimeName,
-          'runtime.version': runtimeVersion
+          'runtime.version': runtimeVersion,
+          custom
         },
         service,
         env,

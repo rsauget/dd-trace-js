@@ -169,12 +169,49 @@ class FakeCiVisIntake extends FakeAgent {
     infoResponse = DEFAULT_INFO_RESPONSE
   }
 
+  // Similar to gatherPayloads but resolves if enough payloads have been gathered
+  // to make the assertions pass. It times out after maxGatheringTime so it should
+  // always be faster or as fast as gatherPayloads
+  gatherPayloadsMaxTimeout (payloadMatch, onPayload, maxGatheringTime = 15000) {
+    const payloads = []
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        try {
+          onPayload(payloads)
+          resolve()
+        } catch (e) {
+          reject(e)
+        } finally {
+          this.off('message', messageHandler)
+        }
+      }, maxGatheringTime)
+      const messageHandler = (message) => {
+        if (!payloadMatch || payloadMatch(message)) {
+          payloads.push(message)
+          try {
+            onPayload(payloads)
+            clearTimeout(timeoutId)
+            this.off('message', messageHandler)
+            resolve()
+          } catch (e) {
+            // we'll try again when a new payload arrives
+          }
+        }
+      }
+      this.on('message', messageHandler)
+    })
+  }
+
   gatherPayloads (payloadMatch, gatheringTime = 15000) {
     const payloads = []
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       setTimeout(() => {
         this.off('message', messageHandler)
-        resolve(payloads)
+        if (payloads.length === 0) {
+          reject(new Error('No payloads were received'))
+        } else {
+          resolve(payloads)
+        }
       }, gatheringTime)
       const messageHandler = (message) => {
         if (!payloadMatch || payloadMatch(message)) {

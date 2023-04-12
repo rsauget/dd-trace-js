@@ -32,9 +32,14 @@ class DatadogSpan {
     this._processor = processor
     this._prioritySampler = prioritySampler
     this._store = storage.getStore()
+    this._duration = undefined
+
+    // For internal use only. You probably want `context()._name`.
+    // This name property is not updated when the span name changes.
+    // This is necessary for span count metrics.
     this._name = operationName
 
-    this._spanContext = this._createContext(parent)
+    this._spanContext = this._createContext(parent, fields)
     this._spanContext._name = operationName
     this._spanContext._tags = tags
     this._spanContext._hostname = hostname
@@ -140,7 +145,7 @@ class DatadogSpan {
     this._processor.process(this)
   }
 
-  _createContext (parent) {
+  _createContext (parent, fields) {
     let spanContext
 
     if (parent) {
@@ -150,18 +155,30 @@ class DatadogSpan {
         parentId: parent._spanId,
         sampling: parent._sampling,
         baggageItems: Object.assign({}, parent._baggageItems),
-        trace: parent._trace
+        trace: parent._trace,
+        tracestate: parent._tracestate
       })
+
+      if (!spanContext._trace.startTime) {
+        spanContext._trace.startTime = dateNow()
+      }
     } else {
       const spanId = id()
+      const startTime = dateNow()
       spanContext = new SpanContext({
         traceId: spanId,
         spanId
       })
+      spanContext._trace.startTime = startTime
+
+      if (fields.traceId128BitGenerationEnabled) {
+        spanContext._trace.tags['_dd.p.tid'] = Math.floor(startTime / 1000).toString(16)
+          .padStart(8, '0')
+          .padEnd(16, '0')
+      }
     }
 
     spanContext._trace.started.push(this)
-    spanContext._trace.startTime = spanContext._trace.startTime || dateNow()
     spanContext._trace.ticks = spanContext._trace.ticks || now()
 
     return spanContext
