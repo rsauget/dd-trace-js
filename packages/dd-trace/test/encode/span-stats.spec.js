@@ -3,6 +3,7 @@
 const { expect } = require('chai')
 const msgpack = require('msgpack-lite')
 const codec = msgpack.createCodec()
+const Config = require('../../src/config')
 
 const {
   MAX_NAME_LENGTH,
@@ -20,6 +21,7 @@ describe('span-stats-encode', () => {
   let stats
   let bucket
   let stat
+  let config
 
   beforeEach(() => {
     logger = {
@@ -29,7 +31,8 @@ describe('span-stats-encode', () => {
       '../log': logger
     })
     writer = { flush: sinon.spy() }
-    encoder = new SpanStatsEncoder(writer)
+    config = new Config()
+    encoder = new SpanStatsEncoder(writer, config)
 
     stat = {
       Name: 'web.request',

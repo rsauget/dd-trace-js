@@ -2,6 +2,8 @@
 
 const proxyquire = require('proxyquire')
 const { expect } = require('chai')
+const Config = require('../../../../src/config')
+const config = new Config()
 
 let Writer
 let writer
@@ -53,7 +55,7 @@ describe('CI Visibility Writer', () => {
       '../../../encode/coverage-ci-visibility': { CoverageCIVisibilityEncoder },
       '../../../log': log
     })
-    writer = new Writer({ url, tags: { 'runtime-id': 'runtime-id' }, coverageUrl: url })
+    writer = new Writer({ url, tags: { 'runtime-id': 'runtime-id' }, config, coverageUrl: url })
   })
 
   describe('append', () => {

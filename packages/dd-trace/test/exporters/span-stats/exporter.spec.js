@@ -46,7 +46,8 @@ describe('span-stats exporter', () => {
     expect(exporter._url).to.be.deep.equal(url)
     expect(Writer).to.have.been.calledWith({
       url: exporter._url,
-      tags: undefined
+      tags: undefined,
+      config: sinon.match.object
     })
   })
 
@@ -57,7 +58,8 @@ describe('span-stats exporter', () => {
 
     expect(Writer).to.have.been.calledWith({
       url: exporter._url,
-      tags
+      tags,
+      config: sinon.match.object
     })
   })
 })

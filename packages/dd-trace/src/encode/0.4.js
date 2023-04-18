@@ -15,21 +15,17 @@ float64Array[0] = -1
 
 const bigEndian = uInt8Float64Array[7] === 0
 
-const debugEncoding = isTrue(coalesce(
-  process.env.DD_TRACE_ENCODING_DEBUG,
-  false
-))
-
 function formatSpan (span) {
   return normalizeSpan(truncateSpan(span, false))
 }
 
 class AgentEncoder {
-  constructor (writer, limit = SOFT_LIMIT) {
+  constructor (writer, config, limit = SOFT_LIMIT) {
     this._limit = limit
     this._traceBytes = new Chunk()
     this._stringBytes = new Chunk()
     this._writer = writer
+    this._config = config
     this._reset()
   }
 
@@ -47,7 +43,7 @@ class AgentEncoder {
 
     const end = bytes.length
 
-    if (debugEncoding) {
+    if (this._config.debugEncoding) {
       log.debug(() => {
         const hex = bytes.buffer.subarray(start, end).toString('hex').match(/../g).join(' ')
 

@@ -4,6 +4,7 @@ const { expect } = require('chai')
 const msgpack = require('msgpack-lite')
 const codec = msgpack.createCodec({ int64: true })
 const id = require('../../src/id')
+const Config = require('../../src/config')
 
 function randString (length) {
   return Array.from({ length }, () => {
@@ -16,6 +17,7 @@ describe('encode', () => {
   let writer
   let logger
   let data
+  let config
 
   beforeEach(() => {
     logger = {
@@ -25,7 +27,8 @@ describe('encode', () => {
       '../log': logger
     })
     writer = { flush: sinon.spy() }
-    encoder = new AgentEncoder(writer)
+    config = new Config()
+    encoder = new AgentEncoder(writer, config)
     data = [{
       trace_id: id('1234abcd1234abcd'),
       span_id: id('1234abcd1234abcd'),
@@ -120,19 +123,19 @@ describe('encode', () => {
     expect(payload[4]).to.equal(0)
   })
 
+  it('should not log adding an encoded trace to the buffer by default', () => {
+    encoder.encode(data)
+
+    expect(logger.debug).to.not.have.been.called
+  })
+
   it('should log adding an encoded trace to the buffer if enabled', () => {
-    process.env.DD_TRACE_ENCODING_DEBUG = 'true'
+    config.debugEncoding = true
     encoder.encode(data)
 
     const message = logger.debug.firstCall.args[0]()
 
     expect(message).to.match(/^Adding encoded trace to buffer:(\s[a-f\d]{2})+$/)
-  })
-
-  it('should not log adding an encoded trace to the buffer by default', () => {
-    encoder.encode(data)
-
-    expect(logger.debug).to.not.have.been.called
   })
 
   it('should work when the buffer is resized', function () {

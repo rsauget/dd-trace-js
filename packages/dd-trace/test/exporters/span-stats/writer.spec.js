@@ -5,6 +5,9 @@ const { expect } = require('chai')
 
 const pkg = require('../../../../../package.json')
 
+const Config = require('../../../src/config')
+const config = new Config()
+
 let Writer
 let writer
 let span
@@ -43,7 +46,7 @@ describe('span-stats writer', () => {
       '../../encode/span-stats': { SpanStatsEncoder },
       '../../log': log
     }).Writer
-    writer = new Writer({ url, tags: { 'runtime-id': 'runtime-id' } })
+    writer = new Writer({ url, tags: { 'runtime-id': 'runtime-id' }, config })
   })
 
   describe('append', () => {
