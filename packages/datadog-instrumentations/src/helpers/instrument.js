@@ -14,6 +14,8 @@ exports.channel = function (name) {
   return ch
 }
 
+exports.tracingChannel = dc.tracingChannel
+
 /**
  * @param {string} args.name module name
  * @param {string[]} args.versions array of semver range strings

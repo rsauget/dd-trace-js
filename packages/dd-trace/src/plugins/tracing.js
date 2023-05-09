@@ -16,11 +16,24 @@ class TracingPlugin extends Plugin {
       this.start(message)
     })
 
+    this.addTCSub('start', message => {
+      this.start(message)
+    })
+
     this.addTraceSub('error', err => {
       this.error(err)
     })
 
+    this.addTCSub('error', message => {
+      this.error(message)
+    })
+
     this.addTraceSub('finish', message => {
+      this.finish(message)
+    })
+
+    // Yes, "asyncStart" maps to the original "finish". It's weird. I'm sorry.
+    this.addTCSub('asyncStart', message => {
       this.finish(message)
     })
   }
@@ -48,11 +61,18 @@ class TracingPlugin extends Plugin {
   }
 
   error (error) {
+    if (error.error) {
+      error = error.error
+    }
     this.addError(error)
   }
 
   addTraceSub (eventName, handler) {
     this.addSub(`apm:${this.component}:${this.operation}:${eventName}`, handler)
+  }
+
+  addTCSub (eventName, handler) {
+    this.addSub(`tracing:${this.component}:${this.operation}:${eventName}`, handler)
   }
 
   addError (error) {

@@ -1,6 +1,10 @@
 'use strict'
 
-const { channel, addHook, AsyncResource } = require('./helpers/instrument')
+const {
+  addHook,
+  AsyncResource,
+  tracingChannel
+} = require('./helpers/instrument')
 const shimmer = require('../../datadog-shimmer')
 
 const rrtypes = {
@@ -17,19 +21,17 @@ const rrtypes = {
   resolveSoa: 'SOA'
 }
 
-const rrtypeMap = new WeakMap()
-
 addHook({ name: 'dns' }, dns => {
-  dns.lookup = wrap('apm:dns:lookup', dns.lookup, 2)
-  dns.lookupService = wrap('apm:dns:lookup_service', dns.lookupService, 3)
-  dns.resolve = wrap('apm:dns:resolve', dns.resolve, 2)
-  dns.reverse = wrap('apm:dns:reverse', dns.reverse, 2)
+  dns.lookup = wrap('dns:lookup', dns.lookup, 2)
+  dns.lookupService = wrap('dns:lookup_service', dns.lookupService, 3)
+  dns.resolve = wrap('dns:resolve', dns.resolve, 2)
+  dns.reverse = wrap('dns:reverse', dns.reverse, 2)
 
   patchResolveShorthands(dns)
 
   if (dns.Resolver) {
-    dns.Resolver.prototype.resolve = wrap('apm:dns:resolve', dns.Resolver.prototype.resolve, 2)
-    dns.Resolver.prototype.reverse = wrap('apm:dns:reverse', dns.Resolver.prototype.reverse, 2)
+    dns.Resolver.prototype.resolve = wrap('dns:resolve', dns.Resolver.prototype.resolve, 2)
+    dns.Resolver.prototype.reverse = wrap('dns:reverse', dns.Resolver.prototype.reverse, 2)
 
     patchResolveShorthands(dns.Resolver.prototype)
   }
@@ -41,54 +43,32 @@ function patchResolveShorthands (prototype) {
   Object.keys(rrtypes)
     .filter(method => !!prototype[method])
     .forEach(method => {
-      rrtypeMap.set(prototype[method], rrtypes[method])
-      prototype[method] = wrap('apm:dns:resolve', prototype[method], 2, rrtypes[method])
+      prototype[method] = wrap('dns:resolve', prototype[method], 2, rrtypes[method])
     })
 }
 
 function wrap (prefix, fn, expectedArgs, rrtype) {
-  const startCh = channel(prefix + ':start')
-  const finishCh = channel(prefix + ':finish')
-  const errorCh = channel(prefix + ':error')
+  const tc = tracingChannel(prefix)
 
-  const wrapped = function () {
-    const cb = AsyncResource.bind(arguments[arguments.length - 1])
+  const wrapped = function (...args) {
     if (
-      !startCh.hasSubscribers ||
-      arguments.length < expectedArgs ||
-      typeof cb !== 'function'
+      !tc.start.hasSubscribers ||
+      args.length < expectedArgs ||
+      typeof args[args.length - 1] !== 'function'
     ) {
-      return fn.apply(this, arguments)
+      return fn.apply(this, args)
     }
 
-    const startArgs = Array.from(arguments)
-    startArgs.pop() // gets rid of the callback
+    // TODO(bengl) We should be able to do without this bind. We'll likely
+    // need to grab the current store, stash it in the context, and temporarily
+    // enterWith it between asyncStart and asyncEnd.
+    args[args.length - 1] = AsyncResource.bind(args[args.length - 1])
+
     if (rrtype) {
-      startArgs.push(rrtype)
+      args.splice(args.length - 1, 0, rrtype)
     }
 
-    const asyncResource = new AsyncResource('bound-anonymous-fn')
-    return asyncResource.runInAsyncScope(() => {
-      startCh.publish(startArgs)
-
-      arguments[arguments.length - 1] = asyncResource.bind(function (error, result) {
-        if (error) {
-          errorCh.publish(error)
-        }
-        finishCh.publish(result)
-        cb.apply(this, arguments)
-      })
-
-      try {
-        return fn.apply(this, arguments)
-      // TODO deal with promise versions when we support `dns/promises`
-      } catch (error) {
-        error.stack // trigger getting the stack at the original throwing point
-        errorCh.publish(error)
-
-        throw error
-      }
-    })
+    return tc.traceCallback(fn, -1, { args }, this, ...args)
   }
 
   return shimmer.wrap(fn, wrapped)
