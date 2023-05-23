@@ -159,6 +159,7 @@ module.exports = (on, config) => {
 
   on('before:run', (details) => {
     return getItrConfig(tracer, testConfiguration).then(({ err, itrConfig }) => {
+      console.log('itrConfig', itrConfig)
       if (err) {
         log.error(err)
       } else {
@@ -172,6 +173,7 @@ module.exports = (on, config) => {
         } else {
           testsToSkip = skippableTests || []
         }
+        console.log('testsToSkip', testsToSkip)
 
         const childOf = getTestParentSpan(tracer)
         rootDir = getRootDir(details)
@@ -303,6 +305,8 @@ module.exports = (on, config) => {
     'dd:afterEach': ({ test, coverage }) => {
       const { state, error, isRUMActive, testSourceLine } = test
       if (activeSpan) {
+        console.log('coverage', coverage)
+        console.log('isCodeCoverageEnabled', isCodeCoverageEnabled)
         if (coverage && tracer._tracer._exporter.exportCoverage && isCodeCoverageEnabled) {
           const coverageFiles = getCoveredFilenamesFromCoverage(coverage)
           const relativeCoverageFiles = coverageFiles.map(file => getTestSuitePath(file, rootDir))
