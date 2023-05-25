@@ -221,3 +221,4 @@ Arrays are no longer supported and must be converted to string manually.
 Outgoing request filtering is no longer supported and is now only available for
 incoming requests. This means that the `blocklist` and `allowlist` options on
 the `http` integration no longer have any effect.
+
