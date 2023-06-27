@@ -50,7 +50,7 @@ module.exports = class CiPlugin extends Plugin {
       })
     })
 
-    this.addSub(`ci:${this.constructor.id}:session:start`, ({ command, frameworkVersion, rootDir }) => {
+    this.addSub(`ci:${this.constructor.id}:session:start`, ({ command, frameworkVersion, rootDir, setIds }) => {
       const childOf = getTestParentSpan(this.tracer)
       const testSessionSpanMetadata = getTestSessionCommonTags(command, frameworkVersion, this.constructor.id)
       const testModuleSpanMetadata = getTestModuleCommonTags(command, frameworkVersion, this.constructor.id)
@@ -75,6 +75,10 @@ module.exports = class CiPlugin extends Plugin {
           ...this.testEnvironmentMetadata,
           ...testModuleSpanMetadata
         }
+      })
+      setIds({
+        sessionId: this.testSessionSpan.context().toTraceId(),
+        moduleId: this.testModuleSpan.context().toSpanId()
       })
     })
   }

@@ -21,6 +21,8 @@ const skippableSuitesCh = channel('ci:cucumber:test-suite:skippable')
 const sessionStartCh = channel('ci:cucumber:session:start')
 const sessionFinishCh = channel('ci:cucumber:session:finish')
 
+const finishWorkerCh = channel('ci:cucumber:worker:finish')
+
 const {
   getCoveredFilenamesFromCoverage,
   resetCoverage,
@@ -28,6 +30,11 @@ const {
   fromCoverageMapToCoverage,
   getTestSuitePath
 } = require('../../dd-trace/src/plugins/util/test')
+
+const asyncResourceByTestSuite = {}
+
+// I need to store async resources by test suite path: there can't be a concept of "active test suite span" since
+// there will be workers running multiple suites at the same time
 
 // We'll preserve the original coverage here
 const originalCoverageMap = createCoverageMap()
@@ -88,10 +95,6 @@ function wrapRun (pl, isLatestVersion) {
     return asyncResource.runInAsyncScope(() => {
       const testSuiteFullPath = this.pickle.uri
 
-      if (!pickleResultByFile[testSuiteFullPath]) { // first test in suite
-        testSuiteStartCh.publish(testSuiteFullPath)
-      }
-
       const testSourceLine = this.gherkinDocument &&
         this.gherkinDocument.feature &&
         this.gherkinDocument.feature.location &&
@@ -100,7 +103,10 @@ function wrapRun (pl, isLatestVersion) {
       testStartCh.publish({
         testName: this.pickle.name,
         fullTestSuite: testSuiteFullPath,
-        testSourceLine
+        testSourceLine,
+        testSuiteId: testSuites[testSuiteFullPath],
+        moduleId,
+        sessionId
       })
       try {
         const promise = run.apply(this, arguments)
@@ -109,30 +115,7 @@ function wrapRun (pl, isLatestVersion) {
           const { status, skipReason, errorMessage } = isLatestVersion
             ? getStatusFromResultLatest(result) : getStatusFromResult(result)
 
-          if (!pickleResultByFile[testSuiteFullPath]) {
-            pickleResultByFile[testSuiteFullPath] = [status]
-          } else {
-            pickleResultByFile[testSuiteFullPath].push(status)
-          }
           testFinishCh.publish({ status, skipReason, errorMessage })
-          // last test in suite
-          if (pickleResultByFile[testSuiteFullPath].length === pickleByFile[testSuiteFullPath].length) {
-            const testSuiteStatus = getSuiteStatusFromTestStatuses(pickleResultByFile[testSuiteFullPath])
-            if (global.__coverage__) {
-              const coverageFiles = getCoveredFilenamesFromCoverage(global.__coverage__)
-
-              testSuiteCodeCoverageCh.publish({
-                coverageFiles,
-                suiteFile: testSuiteFullPath
-              })
-              // We need to reset coverage to get a code coverage per suite
-              // Before that, we preserve the original coverage
-              mergeCoverage(global.__coverage__, originalCoverageMap)
-              resetCoverage(global.__coverage__)
-            }
-
-            testSuiteFinishCh.publish(testSuiteStatus)
-          }
         })
         return promise
       } catch (err) {
@@ -176,12 +159,6 @@ function wrapRun (pl, isLatestVersion) {
 }
 
 function pickleHook (PickleRunner) {
-  if (process.env.CUCUMBER_WORKER_ID) {
-    // Parallel mode is not supported
-    log.warn('Unable to initialize CI Visibility because Cucumber is running in parallel mode.')
-    return PickleRunner
-  }
-
   const pl = PickleRunner.default
 
   wrapRun(pl, false)
@@ -190,12 +167,6 @@ function pickleHook (PickleRunner) {
 }
 
 function testCaseHook (TestCaseRunner) {
-  if (process.env.CUCUMBER_WORKER_ID) {
-    // Parallel mode is not supported
-    log.warn('Unable to initialize CI Visibility because Cucumber is running in parallel mode.')
-    return TestCaseRunner
-  }
-
   const pl = TestCaseRunner.default
 
   wrapRun(pl, true)
@@ -234,6 +205,172 @@ function getPickleByFile (runtime) {
   }, {})
 }
 
+// for the worker
+let testSuites = {}
+let moduleId, sessionId
+
+addHook({
+  name: '@cucumber/cucumber',
+  versions: ['>=7.0.0'],
+  file: 'lib/runtime/parallel/worker.js'
+}, workerPackage => {
+  shimmer.wrap(workerPackage.default.prototype, 'finalize', finalize => async function () {
+    let onFlushed
+    const promise = new Promise(resolve => {
+      onFlushed = resolve
+    })
+    finishWorkerCh.publish({ onFlushed })
+
+    await promise
+    return finalize.apply(this, arguments)
+  })
+
+  shimmer.wrap(workerPackage.default.prototype, 'receiveMessage', receiveMessage => async function (message) {
+    const { ddCustom } = message
+    // we always update the ids
+    if (ddCustom) {
+      testSuites = ddCustom.testSuiteIdByTestPath
+      moduleId = ddCustom.moduleId
+      sessionId = ddCustom.sessionId
+    }
+
+    return receiveMessage.apply(this, arguments)
+  })
+
+  return workerPackage
+})
+
+const testSuiteIdByTestPath = {}
+
+addHook({
+  name: '@cucumber/cucumber',
+  versions: ['>=7.0.0'],
+  file: 'lib/runtime/parallel/coordinator.js'
+}, (coordinatorPackage) => {
+  shimmer.wrap(coordinatorPackage.default.prototype, 'run', run => async function () {
+    pickleByFile = getPickleByFile(this)
+    return run.apply(this, arguments)
+  })
+
+  shimmer.wrap(coordinatorPackage.default.prototype, 'giveWork', giveWork => function (worker) {
+    // we need to pass this to every worker, all the time
+    const oldWorkerSend = worker.process.send
+
+    // this changes by version!!!
+
+    if (this.nextPickleIdIndex === this.pickleIds.length) {
+      return giveWork.apply(this, arguments)
+    }
+
+    const pickleId = this.pickleIds[this.nextPickleIdIndex]
+    const test = this.eventDataCollector.getPickle(pickleId)
+
+    const testSuiteFullPath = test.uri
+
+    let testSuiteId
+    function setId (id) {
+      testSuiteId = id
+    }
+
+    // we need to attach the ids always
+    worker.process.send = function (command) {
+      if (command.run) {
+        // we always attach the ids info
+        command.ddCustom = { testSuiteIdByTestPath, sessionId, moduleId }
+      }
+
+      return oldWorkerSend.apply(this, arguments)
+    }
+
+    if (!pickleResultByFile[testSuiteFullPath] && !testSuiteIdByTestPath[testSuiteFullPath]) {
+      const asyncResource = new AsyncResource('bound-anonymous-fn')
+
+      asyncResourceByTestSuite[testSuiteFullPath] = asyncResource
+
+      asyncResource.runInAsyncScope(() => {
+        testSuiteStartCh.publish({ testSuiteFullPath, setId })
+      })
+
+      testSuiteIdByTestPath[testSuiteFullPath] = testSuiteId
+    }
+
+    return giveWork.apply(this, arguments)
+  })
+
+  shimmer.wrap(coordinatorPackage.default.prototype, 'parseWorkerMessage', parseWorkerMessage => function (worker, message) {
+    if (message.jsonEnvelope) {
+      const envelope = JSON.parse(message.jsonEnvelope)
+      if (envelope.testCaseFinished) {
+        const { testCaseStartedId } = envelope.testCaseFinished
+        const { testCaseId } = this.eventDataCollector.testCaseAttemptDataMap[testCaseStartedId]
+        const { pickleId } = this.eventDataCollector.testCaseMap[testCaseId]
+        const test = this.eventDataCollector.getPickle(pickleId)
+
+        const testSuiteFullPath = test.uri
+
+        // TODO: how to get test status?? We used this.getWorstResult() but here we have no PickleRunner
+        if (!pickleResultByFile[testSuiteFullPath]) {
+          pickleResultByFile[testSuiteFullPath] = ['pass']
+        } else {
+          pickleResultByFile[testSuiteFullPath].push('pass')
+        }
+
+        if (pickleResultByFile[testSuiteFullPath].length === pickleByFile[testSuiteFullPath].length) {
+          const asyncResource = asyncResourceByTestSuite[testSuiteFullPath]
+          asyncResource.runInAsyncScope(() => {
+            const testSuiteStatus = getSuiteStatusFromTestStatuses(pickleResultByFile[testSuiteFullPath])
+            testSuiteFinishCh.publish(testSuiteStatus)
+          })
+        }
+      }
+    }
+
+    return parseWorkerMessage.apply(this, arguments)
+  })
+
+  return coordinatorPackage
+})
+
+// TODO: change instrumentation based on this
+let isParallel
+
+addHook({
+  name: '@cucumber/cucumber',
+  versions: ['>=7.0.0'],
+  file: 'lib/cli/index.js'
+}, (cliPackage, cucumberVersion) => {
+  shimmer.wrap(cliPackage.default.prototype, 'run', run => async function () {
+    const asyncResource = new AsyncResource('bound-anonymous-fn')
+
+    const config = await this.getConfiguration()
+    isParallel = config.parallel > 1
+
+    // do config and ITR calls here
+
+    const processArgv = process.argv.slice(2).join(' ')
+    const command = process.env.npm_lifecycle_script || `cucumber-js ${processArgv}`
+
+    function setIds (ids) {
+      sessionId = ids.sessionId
+      moduleId = ids.moduleId
+    }
+
+    asyncResource.runInAsyncScope(() => {
+      sessionStartCh.publish({ command, frameworkVersion: cucumberVersion, setIds })
+    })
+    const result = await run.apply(this, arguments)
+
+    asyncResource.runInAsyncScope(() => {
+      sessionFinishCh.publish({
+        status: result.success ? 'pass' : 'fail'
+      })
+    })
+
+    return result
+  })
+  return cliPackage
+})
+
 addHook({
   name: '@cucumber/cucumber',
   versions: ['>=7.0.0'],
@@ -243,6 +380,7 @@ addHook({
     const asyncResource = new AsyncResource('bound-anonymous-fn')
     let onDone
 
+    // this calls need to happen at lib/cli/index
     const configPromise = new Promise(resolve => {
       onDone = resolve
     })
