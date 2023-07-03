@@ -38,6 +38,7 @@ function isShallowRepository () {
 function unshallowRepository () {
   execFileSync('git', ['config', 'remote.origin.partialclonefilter', '"blob:none"'], { stdio: 'inherit' })
   const res = execFileSync('git', ['fetch', '--shallow-since="1 month ago"', '--update-shallow', '--refetch'], { stdio: 'inherit' })
+  console.log('res', res)
   if (res && res.toString) {
     console.log('fetch res', res.toString())
   }
