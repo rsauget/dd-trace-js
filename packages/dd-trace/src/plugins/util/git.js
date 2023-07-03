@@ -1,4 +1,4 @@
-const { execFileSync, execSync } = require('child_process')
+const { execFileSync, execSync, spawnSync } = require('child_process')
 const os = require('os')
 const path = require('path')
 const fs = require('fs')
@@ -38,7 +38,7 @@ function isShallowRepository () {
 // old
 function unshallowRepository () {
   sanitizedExec('git', ['config', 'remote.origin.partialclonefilter', '"blob:none"'])
-  console.log(execFileSync('git', ['fetch', '--shallow-since="1 month ago"', '--update-shallow', '--refetch']).toString())
+  console.log(spawnSync('git', ['fetch', '--shallow-since="1 month ago"', '--update-shallow', '--filter=blob:none', '--recurse-submodules=no', defaultRemoteName, revParseHead]).stderr.toString())
 }
 
 // new
