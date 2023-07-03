@@ -38,7 +38,7 @@ function isShallowRepository () {
 // old
 function unshallowRepository () {
   sanitizedExec('git', ['config', 'remote.origin.partialclonefilter', '"blob:none"'])
-  sanitizedExec('git', ['fetch', '--shallow-since="1 month ago"', '--update-shallow', '--refetch'])
+  execFileSync('git', ['fetch', '--shallow-since="1 month ago"', '--update-shallow', '--refetch'], { stdio: 'inherit' })
 }
 
 // new
