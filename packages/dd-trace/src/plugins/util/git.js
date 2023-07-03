@@ -45,11 +45,11 @@ function unshallowRepository () {
   }
   const defaultRemoteName = sanitizedExec('git', ['config', '--default', 'origin', '--get', 'clone.defaultRemoteName'])
   const revParseHead = sanitizedExec('git', ['rev-parse', 'HEAD'])
-  sanitizedExec('git', [
+  execFileSync('git', [
     'fetch',
     '--shallow-since="1 month ago"',
     '--update-shallow',
-    '--filter="blob:none"',
+    '--filter=blob:none',
     '--recurse-submodules=no',
     defaultRemoteName,
     revParseHead
