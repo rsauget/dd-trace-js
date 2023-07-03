@@ -168,7 +168,7 @@ function sendGitMetadata (url, isEvpProxy, configRepositoryUrl, callback) {
   }
 
   if (isShallowRepository()) {
-    log.debug('It is shallow clone, unshallowing...')
+    console.log('It is shallow clone, unshallowing...')
     unshallowRepository()
   }
 
