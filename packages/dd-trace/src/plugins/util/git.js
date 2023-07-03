@@ -36,6 +36,10 @@ function isShallowRepository () {
 }
 
 function unshallowRepository () {
+  // before
+  console.log('REPO BEFORE UNSHALLOW:')
+  console.log(execFileSync('git', ['log'], { stdio: 'pipe' }).toString())
+
   const gitVersionString = sanitizedExec('git', ['version'])
   const gitVersionSplit = gitVersionString.split(' ')[2].split('.')
   const gitVersionMain = parseInt(gitVersionSplit[0])
@@ -54,6 +58,9 @@ function unshallowRepository () {
     defaultRemoteName,
     revParseHead
   ], { stdio: 'inherit' })
+
+  console.log('REPO AFTER UNSHALLOW:')
+  console.log(execFileSync('git', ['log'], { stdio: 'pipe' }).toString())
 }
 
 function getRepositoryUrl () {
