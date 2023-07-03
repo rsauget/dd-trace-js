@@ -37,9 +37,9 @@ function isShallowRepository () {
 
 // old
 function unshallowRepository () {
-  sanitizedExec('git', ['config', 'remote.origin.partialclonefilter', '"blob:none"'])
+  sanitizedExec('git', ['config', 'remote.origin.partialclonefilter', 'blob:none'])
   const spawnRes = spawnSync('git', ['fetch', '--shallow-since="1 month ago"', '--update-shallow', '--refetch'], { maxBuffer: 10 * 1024 * 1024 })
-  console.log('spawnRes sanity check old', spawnRes)
+  console.log('FIXED spawnRes sanity check old', spawnRes)
   console.log('spawnRes status', spawnRes.status)
   console.log('spawnRes error', spawnRes.error)
   console.log('spawnRes signal', spawnRes.signal)
