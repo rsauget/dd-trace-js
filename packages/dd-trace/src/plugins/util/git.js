@@ -38,7 +38,7 @@ function isShallowRepository () {
 // old
 function unshallowRepository () {
   sanitizedExec('git', ['config', 'remote.origin.partialclonefilter', '"blob:none"'])
-  console.log(spawnSync('git', ['fetch', '--shallow-since="1 month ago"', '--update-shallow', '--filter=blob:none', '--recurse-submodules=no', defaultRemoteName, revParseHead]).stderr.toString())
+  console.log(spawnSync('git', ['fetch', '--shallow-since="1 month ago"', '--update-shallow', '--refetch']).stderr.toString())
 }
 
 // new
@@ -56,15 +56,7 @@ function unshallowRepository () {
 //   }
 //   const defaultRemoteName = sanitizedExec('git', ['config', '--default', 'origin', '--get', 'clone.defaultRemoteName'])
 //   const revParseHead = sanitizedExec('git', ['rev-parse', 'HEAD'])
-//   execFileSync('git', [
-//     'fetch',
-//     '--shallow-since="1 month ago"',
-//     '--update-shallow',
-//     '--filter=blob:none',
-//     '--recurse-submodules=no',
-//     defaultRemoteName,
-//     revParseHead
-//   ], { stdio: 'inherit' })
+//   console.log(spawnSync('git', ['fetch', '--shallow-since="1 month ago"', '--update-shallow', '--filter=blob:none', '--recurse-submodules=no', defaultRemoteName, revParseHead]).stderr.toString())
 
 //   console.log('REPO AFTER UNSHALLOW:')
 //   console.log(execFileSync('git', ['log'], { stdio: 'pipe' }).toString())
