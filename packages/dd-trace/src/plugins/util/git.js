@@ -36,12 +36,24 @@ function isShallowRepository () {
 }
 
 function unshallowRepository () {
-  execFileSync('git', ['config', 'remote.origin.partialclonefilter', '"blob:none"'], { stdio: 'inherit' })
-  const res = execFileSync('git', ['fetch', '--shallow-since="1 month ago"', '--update-shallow', '--refetch'], { stdio: 'inherit' })
-  console.log('res', res)
-  if (res && res.toString) {
-    console.log('fetch res', res.toString())
+  const gitVersionString = sanitizedExec('git', ['version'])
+  const gitVersionSplit = gitVersionString.split(' ')[2].split('.')
+  const gitVersionMain = parseInt(gitVersionSplit[0])
+  const gitVersionSecondary = parseInt(gitVersionSplit[1])
+  if (gitVersionMain <= 2 && gitVersionSecondary < 27) {
+    return
   }
+  const defaultRemoteName = sanitizedExec('git', ['config', '--default', 'origin', '--get', 'clone.defaultRemoteName'])
+  const revParseHead = sanitizedExec('git', ['rev-parse', 'HEAD'])
+  sanitizedExec('git', [
+    'fetch',
+    '--shallow-since="1 month ago"',
+    '--update-shallow',
+    '--filter="blob:none"',
+    '--recurse-submodules=no',
+    defaultRemoteName,
+    revParseHead
+  ], { stdio: 'inherit' })
 }
 
 function getRepositoryUrl () {
