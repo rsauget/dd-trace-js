@@ -36,29 +36,9 @@ function isShallowRepository () {
 }
 
 // old
-// function unshallowRepository () {
-//   sanitizedExec('git', ['config', 'remote.origin.partialclonefilter', '"blob:none"'])
-//   const spawnRes = spawnSync('git', ['fetch', '--shallow-since="1 month ago"', '--update-shallow', '--refetch'])
-//   console.log('spawnRes', spawnRes)
-//   console.log('spawnRes status', spawnRes.status)
-//   console.log('spawnRes error', spawnRes.error)
-//   console.log('spawnRes signal', spawnRes.signal)
-// }
-
-// new
 function unshallowRepository () {
-  // before
-
-  const gitVersionString = sanitizedExec('git', ['version'])
-  const gitVersionSplit = gitVersionString.split(' ')[2].split('.')
-  const gitVersionMain = parseInt(gitVersionSplit[0])
-  const gitVersionSecondary = parseInt(gitVersionSplit[1])
-  if (gitVersionMain <= 2 && gitVersionSecondary < 27) {
-    return
-  }
-  const defaultRemoteName = sanitizedExec('git', ['config', '--default', 'origin', '--get', 'clone.defaultRemoteName'])
-  const revParseHead = sanitizedExec('git', ['rev-parse', 'HEAD'])
-  const spawnRes = spawnSync('git', ['fetch', '--shallow-since="1 month ago"', '--update-shallow', '--filter=blob:none', '--recurse-submodules=no', defaultRemoteName, revParseHead])
+  sanitizedExec('git', ['config', 'remote.origin.partialclonefilter', 'blob:none'])
+  const spawnRes = spawnSync('git', ['fetch', '--shallow-since="1 month ago"', '--update-shallow', '--refetch'], { maxBuffer: 10 * 1024 * 1024 })
   console.log('spawnRes', spawnRes)
   console.log('spawnRes status', spawnRes.status)
   console.log('spawnRes error', spawnRes.error)
@@ -66,6 +46,28 @@ function unshallowRepository () {
   console.log('spawnRes stderr', spawnRes.stderr.toString())
   console.log('spawnRes stdout', spawnRes.stdout.toString())
 }
+
+// new
+// function unshallowRepository () {
+//   // before
+
+//   const gitVersionString = sanitizedExec('git', ['version'])
+//   const gitVersionSplit = gitVersionString.split(' ')[2].split('.')
+//   const gitVersionMain = parseInt(gitVersionSplit[0])
+//   const gitVersionSecondary = parseInt(gitVersionSplit[1])
+//   if (gitVersionMain <= 2 && gitVersionSecondary < 27) {
+//     return
+//   }
+//   const defaultRemoteName = sanitizedExec('git', ['config', '--default', 'origin', '--get', 'clone.defaultRemoteName'])
+//   const revParseHead = sanitizedExec('git', ['rev-parse', 'HEAD'])
+//   const spawnRes = spawnSync('git', ['fetch', '--shallow-since="1 month ago"', '--update-shallow', '--filter=blob:none', '--recurse-submodules=no', defaultRemoteName, revParseHead])
+//   console.log('spawnRes', spawnRes)
+//   console.log('spawnRes status', spawnRes.status)
+//   console.log('spawnRes error', spawnRes.error)
+//   console.log('spawnRes signal', spawnRes.signal)
+//   console.log('spawnRes stderr', spawnRes.stderr.toString())
+//   console.log('spawnRes stdout', spawnRes.stdout.toString())
+// }
 
 function getRepositoryUrl () {
   return sanitizedExec('git', ['config', '--get', 'remote.origin.url'])
