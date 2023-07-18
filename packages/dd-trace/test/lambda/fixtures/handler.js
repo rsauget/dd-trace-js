@@ -26,6 +26,7 @@ const callbackHandler = (_event, _context, callback) => {
   callback('', response)
 }
 
+
 const timeoutHandler = async (...args) => {
   await _tracer.trace('self.sleepy', () => {
     return sleep(50)
