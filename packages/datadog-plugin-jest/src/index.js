@@ -10,12 +10,28 @@ const {
   TEST_PARAMETERS,
   TEST_COMMAND,
   TEST_FRAMEWORK_VERSION,
-  TEST_SOURCE_START
+  TEST_SOURCE_START,
+  getTestParentSpan,
+  getTestCommonTags,
+  getCodeOwnersForFilename,
+  TEST_SESSION_ID,
+  TEST_MODULE,
+  TEST_MODULE_ID,
+  TEST_SUITE_ID,
+  TEST_CODE_OWNERS,
+  CI_APP_ORIGIN
 } = require('../../dd-trace/src/plugins/util/test')
 const { COMPONENT } = require('../../dd-trace/src/constants')
 const id = require('../../dd-trace/src/id')
 
 const isJestWorker = !!process.env.JEST_WORKER_ID
+
+function getIsTestSessionTrace (trace) {
+  return trace.some(span =>
+    span.type === 'test_session_end' || span.type === 'test_suite_end' || span.type === 'test_module_end'
+  )
+}
+
 
 // https://github.com/facebook/jest/blob/d6ad15b0f88a05816c2fe034dd6900d28315d570/packages/jest-worker/src/types.ts#L38
 const CHILD_MESSAGE_END = 2
@@ -66,33 +82,21 @@ class JestPlugin extends CiPlugin {
       this.tracer._exporter.flush()
     })
 
-    // Test suites can be run in a different process from jest's main one.
-    // This subscriber changes the configuration objects from jest to inject the trace id
-    // of the test session to the processes that run the test suites.
-    this.addSub('ci:jest:session:configuration', configs => {
-      configs.forEach(config => {
-        config._ddTestSessionId = this.testSessionSpan.context().toTraceId()
-        config._ddTestModuleId = this.testModuleSpan.context().toSpanId()
-        config._ddTestCommand = this.testSessionSpan.context()._tags[TEST_COMMAND]
-      })
-    })
 
-    this.addSub('ci:jest:test-suite:start', ({ testSuite, testEnvironmentOptions, frameworkVersion }) => {
-      const {
-        _ddTestSessionId: testSessionId,
-        _ddTestCommand: testCommand,
-        _ddTestModuleId: testModuleId
-      } = testEnvironmentOptions
-
-      const testSessionSpanContext = this.tracer.extract('text_map', {
-        'x-datadog-trace-id': testSessionId,
-        'x-datadog-parent-id': testModuleId
-      })
+    this.addSub('ci:jest:test-suite:start', ({ testSuite, frameworkVersion }) => {
+      let childOf
+      let testCommand = 'yarn test' // fix this
+      if (isJestWorker) {
+        // the module/session info will be added at the parent process
+        childOf = getTestParentSpan(this.tracer)
+      } else {
+        childOf = this.testModuleSpan // everything is run in the same process
+      }
 
       const testSuiteMetadata = getTestSuiteCommonTags(testCommand, frameworkVersion, testSuite, 'jest')
 
       this.testSuiteSpan = this.tracer.startSpan('jest.test_suite', {
-        childOf: testSessionSpanContext,
+        childOf,
         tags: {
           [COMPONENT]: this.constructor.id,
           ...this.testEnvironmentMetadata,
@@ -102,14 +106,28 @@ class JestPlugin extends CiPlugin {
     })
 
     this.addSub('ci:jest:worker-report:trace', traces => {
-      const formattedTraces = JSON.parse(traces).map(trace =>
-        trace.map(span => ({
+      const formattedTraces = JSON.parse(traces).map(trace => {
+        if (getIsTestSessionTrace(trace)) {
+          return trace.map(span => ({
+            ...span,
+            span_id: id(span.span_id),
+            trace_id: this.testSessionSpan.context()._traceId,
+            parent_id: this.testModuleSpan.context()._spanId
+          }))
+        }
+        return trace.map(span => ({
           ...span,
           span_id: id(span.span_id),
           trace_id: id(span.trace_id),
-          parent_id: id(span.parent_id)
+          parent_id: id(span.parent_id),
+          meta: {
+            ...span.meta,
+            [TEST_SESSION_ID]: this.testSessionSpan.context().toTraceId(),
+            [TEST_MODULE_ID]: this.testModuleSpan.context().toSpanId(),
+            [TEST_COMMAND]: 'yarn test' // TODO fix
+          }
         }))
-      )
+      })
 
       formattedTraces.forEach(trace => {
         this.tracer._exporter.export(trace)
@@ -117,6 +135,7 @@ class JestPlugin extends CiPlugin {
     })
 
     this.addSub('ci:jest:worker-report:coverage', data => {
+      // TODO: this will need new formatting
       const formattedCoverages = JSON.parse(data).map(coverage => ({
         sessionId: id(coverage.sessionId),
         suiteId: id(coverage.suiteId),
@@ -133,13 +152,13 @@ class JestPlugin extends CiPlugin {
         this.testSuiteSpan.setTag('error', new Error(errorMessage))
       }
       this.testSuiteSpan.finish()
-      // Suites potentially run in a different process than the session,
-      // so calling finishAllTraceSpans on the session span is not enough
-      finishAllTraceSpans(this.testSuiteSpan)
       // Flushing within jest workers is cheap, as it's just interprocess communication
       // We do not want to flush after every suite if jest is running tests serially,
       // as every flush is an HTTP request.
       if (isJestWorker) {
+        // Suites potentially run in a different process than the session,
+        // so calling finishAllTraceSpans on the session span is not enough
+        finishAllTraceSpans(this.testSuiteSpan)
         this.tracer._exporter.flush()
       }
     })
@@ -156,6 +175,7 @@ class JestPlugin extends CiPlugin {
         suiteId: _spanId,
         files: coverageFiles
       }
+      // TODO: change this too
       this.tracer._exporter.exportCoverage(formattedCoverage)
     })
 
@@ -198,10 +218,51 @@ class JestPlugin extends CiPlugin {
       [JEST_TEST_RUNNER]: runner,
       [TEST_PARAMETERS]: testParameters,
       [TEST_FRAMEWORK_VERSION]: frameworkVersion,
-      [TEST_SOURCE_START]: testStartLine
+      [TEST_SOURCE_START]: testStartLine,
+      [TEST_SUITE_ID]: this.testSuiteSpan.context().toSpanId()
     }
 
-    return super.startTestSpan(name, suite, this.testSuiteSpan, extraTags)
+    const childOf = getTestParentSpan(this.tracer)
+
+    let testTags = {
+      ...getTestCommonTags(
+        name,
+        suite,
+        this.frameworkVersion,
+        this.constructor.id
+      ),
+      [COMPONENT]: this.constructor.id,
+      [TEST_MODULE]: this.constructor.id,
+      ...extraTags
+    }
+
+    const codeOwners = getCodeOwnersForFilename(suite, this.codeOwnersEntries)
+    if (codeOwners) {
+      testTags[TEST_CODE_OWNERS] = codeOwners
+    }
+
+    childOf._trace.startTime = this.testSuiteSpan.context()._trace.startTime
+    childOf._trace.ticks = this.testSuiteSpan.context()._trace.ticks
+
+    if (this.testModuleSpan) {
+      testTags[TEST_MODULE_ID] = this.testModuleSpan.context()._parentId.toString(10)
+      testTags[TEST_SESSION_ID] = this.testSessionSpan.context().toTraceId()
+      testTags[TEST_COMMAND] = 'yarn test'
+    }
+
+    // we need a custom handler because session ids will not be added now
+    const testSpan = this.tracer
+      .startSpan(`${this.constructor.id}.test`, {
+        childOf,
+        tags: {
+          ...this.testEnvironmentMetadata,
+          ...testTags
+        }
+      })
+
+    testSpan.context()._trace.origin = CI_APP_ORIGIN
+
+    return testSpan
   }
 }
 

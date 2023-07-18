@@ -310,7 +310,6 @@ function jestAdapterWrapper (jestAdapter, jestVersion) {
     return asyncResource.runInAsyncScope(() => {
       testSuiteStartCh.publish({
         testSuite: environment.testSuite,
-        testEnvironmentOptions: environment.testEnvironmentOptions,
         frameworkVersion: jestVersion
       })
       return adapter.apply(this, arguments).then(suiteResults => {
@@ -330,9 +329,9 @@ function jestAdapterWrapper (jestAdapter, jestVersion) {
          * needs to pass them the configuration. This is done via _ddTestCodeCoverageEnabled, which
          * controls whether coverage is reported.
          */
-        if (coverageFiles &&
-          environment.testEnvironmentOptions &&
-          environment.testEnvironmentOptions._ddTestCodeCoverageEnabled) {
+        // we need to make sure no coverage is being reported if code coverage is disabled. Now this is done
+        // at the parent process
+        if (coverageFiles) {
           asyncResource.runInAsyncScope(() => {
             testSuiteCodeCoverageCh.publish([...coverageFiles, environment.testSuite])
           })
@@ -358,16 +357,6 @@ addHook({
 }, jestAdapterWrapper)
 
 function configureTestEnvironment (readConfigsResult) {
-  const { configs } = readConfigsResult
-  sessionAsyncResource.runInAsyncScope(() => {
-    testSessionConfigurationCh.publish(configs.map(config => config.testEnvironmentOptions))
-  })
-  // We can't directly use isCodeCoverageEnabled when reporting coverage in `jestAdapterWrapper`
-  // because `jestAdapterWrapper` runs in a different process. We have to go through `testEnvironmentOptions`
-  configs.forEach(config => {
-    config.testEnvironmentOptions._ddTestCodeCoverageEnabled = isCodeCoverageEnabled
-  })
-
   if (isCodeCoverageEnabled) {
     const globalConfig = {
       ...readConfigsResult.globalConfig,
