@@ -20,13 +20,6 @@ const handler = async (_event, _context) => {
   return response
 }
 
-const callbackHandler = async (_event, _context, callback) => {
-  const response = sampleResponse
-
-  callback(response)
-}
-
-
 const timeoutHandler = async (...args) => {
   await _tracer.trace('self.sleepy', () => {
     return sleep(50)
@@ -70,6 +63,5 @@ module.exports = {
   handler,
   swappedArgsHandler,
   timeoutHandler,
-  errorHandler,
-  callbackHandler
+  errorHandler
 }
