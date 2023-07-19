@@ -88,6 +88,7 @@ function getWrappedEnvironment (BaseEnvironment, jestVersion) {
   return class DatadogEnvironment extends BaseEnvironment {
     constructor (config, context) {
       super(config, context)
+      debugger
       const rootDir = config.globalConfig ? config.globalConfig.rootDir : config.rootDir
       this.rootDir = rootDir
       this.testSuite = getTestSuitePath(context.testPath, rootDir)
@@ -491,6 +492,46 @@ if (DD_MAJOR < 4) {
     file: 'build/jasmineAsyncInstall.js'
   }, jasmineAsyncInstallWraper)
 }
+
+const NO_COVERAGE_FILES = ['javascript/datadog/trace/components/trace/PageTrace/page-trace-container.unit.tsx']
+
+addHook({
+  name: 'jest-runner',
+  versions: ['>=24.8.0'],
+  file: 'build/runTest.js'
+}, (runTestPackage) => {
+  const originalRunTest = runTestPackage.default
+
+  runTestPackage.default = async function (testPath) {
+    if (NO_COVERAGE_FILES.some(path => testPath.includes(path))) {
+      const globalConfig = arguments[1]
+      arguments[1] = {
+        ...globalConfig,
+        collectCoverage: false
+      }
+
+    }
+    return originalRunTest.apply(this, arguments)
+  }
+
+  return runTestPackage
+})
+
+
+// addHook({
+//   name: 'jest-runtime',
+//   versions: ['>=24.8.0']
+// }, (runtimePackage) => {
+//   shimmer.wrap(runtimePackage.default.prototype, 'transformFile', transformFile => function (filename, options) {
+//     debugger
+//     // if (NO_COVERAGE_FILES.includes()) {
+
+//     // }
+//     return transformFile.apply(this, arguments)
+//   })
+//   return runtimePackage
+// })
+
 
 addHook({
   name: 'jest-worker',
