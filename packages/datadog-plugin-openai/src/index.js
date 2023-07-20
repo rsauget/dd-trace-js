@@ -2,7 +2,7 @@
 
 const path = require('path')
 
-const TracingPlugin = require('../../dd-trace/src/plugins/tracing')
+const ClientPlugin = require('../../dd-trace/src/plugins/client')
 const { storage } = require('../../datadog-core')
 const services = require('./services')
 const Sampler = require('../../dd-trace/src/sampler')
@@ -11,7 +11,7 @@ const { MEASURED } = require('../../../ext/tags')
 // TODO: In the future we should refactor config.js to make it requirable
 let MAX_TEXT_LEN = 128
 
-class OpenApiPlugin extends TracingPlugin {
+class OpenApiPlugin extends ClientPlugin {
   static get id () { return 'openai' }
   static get operation () { return 'request' }
   static get system () { return 'openai' }
@@ -42,8 +42,8 @@ class OpenApiPlugin extends TracingPlugin {
   start ({ methodName, args, basePath, apiKey }) {
     const payload = normalizeRequestPayload(methodName, args)
 
-    const span = this.startSpan('openai.request', {
-      service: this.config.service,
+    const span = this.startSpan(this.operationName(), {
+      service: this.config.service || this.serviceName(),
       resource: methodName,
       type: 'openai',
       kind: 'client',

@@ -9,7 +9,8 @@ const web = {
     moleculer: {
       opName: () => 'moleculer.client.request',
       serviceName: identityService
-    }
+    },
+    openai: require('../v0/web').client.openai
   },
   server: {
     grpc: {

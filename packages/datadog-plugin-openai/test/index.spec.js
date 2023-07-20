@@ -13,6 +13,8 @@ const { DogStatsDClient } = require('../../dd-trace/src/dogstatsd')
 const { NoopExternalLogger } = require('../../dd-trace/src/external-logger/src')
 const Sampler = require('../../dd-trace/src/sampler')
 
+const { expectedSchema, rawExpectedSchema } = require('./naming')
+
 const tracerRequirePath = '../../dd-trace'
 
 describe('Plugin', () => {
@@ -56,6 +58,63 @@ describe('Plugin', () => {
         clock.restore()
         sinon.restore()
       })
+
+      withNamingSchema(
+        async () => {
+          const scope = nock('https://api.openai.com:443')
+            .post('/v1/completions')
+            .reply(200, {
+              'id': 'cmpl-7GWDlQbOrAYGmeFZtoRdOEjDXDexM',
+              'object': 'text_completion',
+              'created': 1684171461,
+              'model': 'text-davinci-002',
+              'choices': [{
+                'text': 'FOO BAR BAZ',
+                'index': 0,
+                'logprobs': null,
+                'finish_reason': 'length'
+              }],
+              'usage': { 'prompt_tokens': 3, 'completion_tokens': 16, 'total_tokens': 19 }
+            }, [
+              'Date', 'Mon, 15 May 2023 17:24:22 GMT',
+              'Content-Type', 'application/json',
+              'Content-Length', '349',
+              'Connection', 'close',
+              'openai-model', 'text-davinci-002',
+              'openai-organization', 'kill-9',
+              'openai-processing-ms', '442',
+              'openai-version', '2020-10-01',
+              'x-ratelimit-limit-requests', '3000',
+              'x-ratelimit-limit-tokens', '250000',
+              'x-ratelimit-remaining-requests', '2999',
+              'x-ratelimit-remaining-tokens', '249984',
+              'x-ratelimit-reset-requests', '20ms',
+              'x-ratelimit-reset-tokens', '3ms',
+              'x-request-id', '7df89d8afe7bf24dc04e2c4dd4962d7f'
+            ])
+          await openai.createCompletion({
+            model: 'text-davinci-002',
+            prompt: 'Hello, ',
+            suffix: 'foo',
+            max_tokens: 7,
+            temperature: 1.01,
+            top_p: 0.9,
+            n: 1,
+            stream: false,
+            logprobs: 3,
+            echo: false,
+            stop: 'time',
+            presence_penalty: -0.1,
+            frequency_penalty: 0.11,
+            best_of: 2,
+            logit_bias: { '50256': 30 },
+            user: 'hunter2'
+          })
+          nock.removeInterceptor(scope)
+          scope.done()
+        },
+        rawExpectedSchema.client
+      )
 
       describe('without initialization', () => {
         it('should not error', (done) => {
@@ -114,7 +173,8 @@ describe('Plugin', () => {
 
           const checkTraces = agent
             .use(traces => {
-              expect(traces[0][0]).to.have.property('name', 'openai.request')
+              expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
+              expect(traces[0][0]).to.have.property('service', expectedSchema.client.serviceName)
               expect(traces[0][0]).to.have.property('type', 'openai')
               expect(traces[0][0]).to.have.property('resource', 'createCompletion')
               expect(traces[0][0]).to.have.property('error', 0)
@@ -229,7 +289,7 @@ describe('Plugin', () => {
 
           const checkTraces = agent
             .use(traces => {
-              expect(traces[0][0]).to.have.property('name', 'openai.request')
+              expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
             })
 
           await openai.createCompletion({
@@ -282,7 +342,8 @@ describe('Plugin', () => {
         it('makes a successful call', async () => {
           const checkTraces = agent
             .use(traces => {
-              expect(traces[0][0]).to.have.property('name', 'openai.request')
+              expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
+              expect(traces[0][0]).to.have.property('service', expectedSchema.client.serviceName)
               expect(traces[0][0]).to.have.property('type', 'openai')
               expect(traces[0][0]).to.have.property('resource', 'createEmbedding')
               expect(traces[0][0]).to.have.property('error', 0)
@@ -390,7 +451,8 @@ describe('Plugin', () => {
         it('makes a successful call', async () => {
           const checkTraces = agent
             .use(traces => {
-              expect(traces[0][0]).to.have.property('name', 'openai.request')
+              expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
+              expect(traces[0][0]).to.have.property('service', expectedSchema.client.serviceName)
               expect(traces[0][0]).to.have.property('type', 'openai')
               expect(traces[0][0]).to.have.property('resource', 'listModels')
               expect(traces[0][0]).to.have.property('error', 0)
@@ -455,7 +517,8 @@ describe('Plugin', () => {
         it('makes a successful call', async () => {
           const checkTraces = agent
             .use(traces => {
-              expect(traces[0][0]).to.have.property('name', 'openai.request')
+              expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
+              expect(traces[0][0]).to.have.property('service', expectedSchema.client.serviceName)
               expect(traces[0][0]).to.have.property('type', 'openai')
               expect(traces[0][0]).to.have.property('resource', 'retrieveModel')
               expect(traces[0][0]).to.have.property('error', 0)
@@ -531,7 +594,8 @@ describe('Plugin', () => {
         it('makes a successful call', async () => {
           const checkTraces = agent
             .use(traces => {
-              expect(traces[0][0]).to.have.property('name', 'openai.request')
+              expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
+              expect(traces[0][0]).to.have.property('service', expectedSchema.client.serviceName)
               expect(traces[0][0]).to.have.property('type', 'openai')
               expect(traces[0][0]).to.have.property('resource', 'createEdit')
               expect(traces[0][0]).to.have.property('error', 0)
@@ -640,7 +704,8 @@ describe('Plugin', () => {
         it('makes a successful call', async () => {
           const checkTraces = agent
             .use(traces => {
-              expect(traces[0][0]).to.have.property('name', 'openai.request')
+              expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
+              expect(traces[0][0]).to.have.property('service', expectedSchema.client.serviceName)
               expect(traces[0][0]).to.have.property('type', 'openai')
               expect(traces[0][0]).to.have.property('resource', 'listFiles')
               expect(traces[0][0]).to.have.property('error', 0)
@@ -694,7 +759,8 @@ describe('Plugin', () => {
         it('makes a successful call', async () => {
           const checkTraces = agent
             .use(traces => {
-              expect(traces[0][0]).to.have.property('name', 'openai.request')
+              expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
+              expect(traces[0][0]).to.have.property('service', expectedSchema.client.serviceName)
               expect(traces[0][0]).to.have.property('type', 'openai')
               expect(traces[0][0]).to.have.property('resource', 'createFile')
               expect(traces[0][0]).to.have.property('error', 0)
@@ -750,7 +816,7 @@ describe('Plugin', () => {
         it('makes a successful call', async () => {
           const checkTraces = agent
             .use(traces => {
-              expect(traces[0][0]).to.have.property('name', 'openai.request')
+              expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
               expect(traces[0][0]).to.have.property('type', 'openai')
               expect(traces[0][0]).to.have.property('resource', 'deleteFile')
               expect(traces[0][0]).to.have.property('error', 0)
@@ -805,7 +871,7 @@ describe('Plugin', () => {
         it('makes a successful call', async () => {
           const checkTraces = agent
             .use(traces => {
-              expect(traces[0][0]).to.have.property('name', 'openai.request')
+              expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
               expect(traces[0][0]).to.have.property('type', 'openai')
               expect(traces[0][0]).to.have.property('resource', 'retrieveFile')
               expect(traces[0][0]).to.have.property('error', 0)
@@ -857,7 +923,7 @@ describe('Plugin', () => {
         it('makes a successful call', async () => {
           const checkTraces = agent
             .use(traces => {
-              expect(traces[0][0]).to.have.property('name', 'openai.request')
+              expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
               expect(traces[0][0]).to.have.property('type', 'openai')
               expect(traces[0][0]).to.have.property('resource', 'downloadFile')
               expect(traces[0][0]).to.have.property('error', 0)
@@ -940,7 +1006,7 @@ describe('Plugin', () => {
         it('makes a successful call', async () => {
           const checkTraces = agent
             .use(traces => {
-              expect(traces[0][0]).to.have.property('name', 'openai.request')
+              expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
               expect(traces[0][0]).to.have.property('type', 'openai')
               expect(traces[0][0]).to.have.property('resource', 'createFineTune')
               expect(traces[0][0]).to.have.property('error', 0)
@@ -1002,7 +1068,7 @@ describe('Plugin', () => {
         it('does not throw when missing classification betas', async () => {
           const checkTraces = agent
             .use(traces => {
-              expect(traces[0][0]).to.have.property('name', 'openai.request')
+              expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
             })
 
           await openai.createFineTune({
@@ -1141,7 +1207,7 @@ describe('Plugin', () => {
         it('makes a successful call', async () => {
           const checkTraces = agent
             .use(traces => {
-              expect(traces[0][0]).to.have.property('name', 'openai.request')
+              expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
               expect(traces[0][0]).to.have.property('type', 'openai')
               expect(traces[0][0]).to.have.property('resource', 'retrieveFineTune')
               expect(traces[0][0]).to.have.property('error', 0)
@@ -1229,7 +1295,7 @@ describe('Plugin', () => {
         it('makes a successful call', async () => {
           const checkTraces = agent
             .use(traces => {
-              expect(traces[0][0]).to.have.property('name', 'openai.request')
+              expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
               expect(traces[0][0]).to.have.property('type', 'openai')
               expect(traces[0][0]).to.have.property('resource', 'listFineTunes')
               expect(traces[0][0]).to.have.property('error', 0)
@@ -1341,7 +1407,7 @@ describe('Plugin', () => {
         it('makes a successful call', async () => {
           const checkTraces = agent
             .use(traces => {
-              expect(traces[0][0]).to.have.property('name', 'openai.request')
+              expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
               expect(traces[0][0]).to.have.property('type', 'openai')
               expect(traces[0][0]).to.have.property('resource', 'listFineTuneEvents')
               expect(traces[0][0]).to.have.property('error', 0)
@@ -1389,7 +1455,7 @@ describe('Plugin', () => {
         it('makes a successful call', async () => {
           const checkTraces = agent
             .use(traces => {
-              expect(traces[0][0]).to.have.property('name', 'openai.request')
+              expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
               expect(traces[0][0]).to.have.property('type', 'openai')
               expect(traces[0][0]).to.have.property('resource', 'deleteModel')
               expect(traces[0][0]).to.have.property('error', 0)
@@ -1474,7 +1540,7 @@ describe('Plugin', () => {
         it('makes a successful call', async () => {
           const checkTraces = agent
             .use(traces => {
-              expect(traces[0][0]).to.have.property('name', 'openai.request')
+              expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
               expect(traces[0][0]).to.have.property('type', 'openai')
               expect(traces[0][0]).to.have.property('resource', 'cancelFineTune')
               expect(traces[0][0]).to.have.property('error', 0)
@@ -1557,7 +1623,7 @@ describe('Plugin', () => {
           it('makes a successful call', async () => {
             const checkTraces = agent
               .use(traces => {
-                expect(traces[0][0]).to.have.property('name', 'openai.request')
+                expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
                 expect(traces[0][0]).to.have.property('type', 'openai')
                 expect(traces[0][0]).to.have.property('resource', 'createModeration')
                 expect(traces[0][0]).to.have.property('error', 0)
@@ -1641,7 +1707,7 @@ describe('Plugin', () => {
           it('makes a successful call using a string prompt', async () => {
             const checkTraces = agent
               .use(traces => {
-                expect(traces[0][0]).to.have.property('name', 'openai.request')
+                expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
                 expect(traces[0][0]).to.have.property('type', 'openai')
                 expect(traces[0][0]).to.have.property('resource', 'createImage')
                 expect(traces[0][0]).to.have.property('error', 0)
@@ -1792,7 +1858,7 @@ describe('Plugin', () => {
           it('makes a successful call', async () => {
             const checkTraces = agent
               .use(traces => {
-                expect(traces[0][0]).to.have.property('name', 'openai.request')
+                expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
                 expect(traces[0][0]).to.have.property('type', 'openai')
                 expect(traces[0][0]).to.have.property('resource', 'createImageEdit')
                 expect(traces[0][0]).to.have.property('error', 0)
@@ -1869,7 +1935,7 @@ describe('Plugin', () => {
           it('makes a successful call', async () => {
             const checkTraces = agent
               .use(traces => {
-                expect(traces[0][0]).to.have.property('name', 'openai.request')
+                expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
                 expect(traces[0][0]).to.have.property('type', 'openai')
                 expect(traces[0][0]).to.have.property('resource', 'createImageVariation')
                 expect(traces[0][0]).to.have.property('error', 0)
@@ -1951,7 +2017,7 @@ describe('Plugin', () => {
           it('makes a successful call', async () => {
             const checkTraces = agent
               .use(traces => {
-                expect(traces[0][0]).to.have.property('name', 'openai.request')
+                expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
                 expect(traces[0][0]).to.have.property('type', 'openai')
                 expect(traces[0][0]).to.have.property('resource', 'createChatCompletion')
                 expect(traces[0][0]).to.have.property('error', 0)
@@ -2059,7 +2125,7 @@ describe('Plugin', () => {
           it('does not error with invalid .messages or missing .logit_bias', async () => {
             const checkTraces = agent
               .use(traces => {
-                expect(traces[0][0]).to.have.property('name', 'openai.request')
+                expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
               })
 
             await openai.createChatCompletion({
@@ -2115,7 +2181,7 @@ describe('Plugin', () => {
           it('makes a successful call', async () => {
             const checkTraces = agent
               .use(traces => {
-                expect(traces[0][0]).to.have.property('name', 'openai.request')
+                expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
                 expect(traces[0][0]).to.have.property('type', 'openai')
                 expect(traces[0][0]).to.have.property('resource', 'createTranscription')
                 expect(traces[0][0]).to.have.property('error', 0)
@@ -2201,7 +2267,7 @@ describe('Plugin', () => {
           it('makes a successful call', async () => {
             const checkTraces = agent
               .use(traces => {
-                expect(traces[0][0]).to.have.property('name', 'openai.request')
+                expect(traces[0][0]).to.have.property('name', expectedSchema.client.opName)
                 expect(traces[0][0]).to.have.property('type', 'openai')
                 expect(traces[0][0]).to.have.property('resource', 'createTranslation')
                 expect(traces[0][0]).to.have.property('error', 0)

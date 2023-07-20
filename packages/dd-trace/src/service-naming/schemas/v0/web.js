@@ -10,6 +10,10 @@ const web = {
     moleculer: {
       opName: () => 'moleculer.call',
       serviceName: identityService
+    },
+    openai: {
+      opName: () => 'openai.request',
+      serviceName: identityService
     }
   },
   server: {
