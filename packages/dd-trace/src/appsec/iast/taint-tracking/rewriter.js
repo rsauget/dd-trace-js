@@ -7,7 +7,9 @@ const { isPrivateModule, isNotLibraryFile } = require('./filter')
 const { csiMethods } = require('./csi-methods')
 const { getName } = require('../telemetry/verbosity')
 const { getRewriteFunction } = require('./rewriter-telemetry')
+const dc = require('../../../../../diagnostics_channel')
 
+const hardcodedSecretCh = dc.channel('datadog:secrets:result')
 let rewriter
 let getPrepareStackTrace
 function getRewriter (telemetryVerbosity) {
@@ -41,6 +43,11 @@ function getCompileMethodFn (compileMethod) {
     try {
       if (isPrivateModule(filename) && isNotLibraryFile(filename)) {
         const rewritten = rewriteFn(content, filename)
+
+        if (rewritten && rewritten.hardcodedSecretResult) {
+          hardcodedSecretCh.publish(rewritten.hardcodedSecretResult)
+        }
+
         if (rewritten && rewritten.content) {
           return compileMethod.apply(this, [rewritten.content, filename])
         }

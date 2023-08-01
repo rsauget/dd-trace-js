@@ -11,7 +11,7 @@ class WAFContextWrapper {
     this.rulesInfo = rulesInfo
   }
 
-  run (params) {
+  _formatInput (params) {
     const inputs = {}
     let someInputAdded = false
 
@@ -23,7 +23,13 @@ class WAFContextWrapper {
       }
     }
 
-    if (!someInputAdded) return
+    return (someInputAdded ? inputs : undefined)
+  }
+
+  run (params) {
+    const inputs = this._formatInput(params)
+
+    if (!inputs) return
 
     try {
       const start = process.hrtime.bigint()

@@ -40,16 +40,20 @@ class WAFManager {
     Reporter.metricsQueue.set('manual.keep', 'true')
   }
 
+  newWAFContext (Factory = WAFContextWrapper) {
+    return new Factory(
+      this.ddwaf.createContext(),
+      this.ddwaf.requiredAddresses,
+      this.wafTimeout,
+      this.ddwaf.rulesInfo
+    )
+  }
+
   getWAFContext (req) {
     let wafContext = contexts.get(req)
 
     if (!wafContext) {
-      wafContext = new WAFContextWrapper(
-        this.ddwaf.createContext(),
-        this.ddwaf.requiredAddresses,
-        this.wafTimeout,
-        this.ddwaf.rulesInfo
-      )
+      wafContext = this.newWAFContext()
       contexts.set(req, wafContext)
     }
 
