@@ -1,7 +1,7 @@
 'use strict'
 
 const Analyzer = require('./vulnerability-analyzer')
-const { HARCODED_SECRET } = require('../vulnerabilities')
+const { HARDCODED_SECRET } = require('../vulnerabilities')
 const waf = require('../../waf')
 const addresses = require('../../addresses')
 const WAFContextWrapper = require('../../waf/waf_context_wrapper')
@@ -26,11 +26,11 @@ class IastContextWrapper extends WAFContextWrapper {
 
 class HarcodedSecretAnalyzer extends Analyzer {
   constructor () {
-    super(HARCODED_SECRET)
+    super(HARDCODED_SECRET)
   }
 
   onConfigure () {
-    this.addSub('datadog:secrets:start', (secrets) => { this.analyze(secrets) })
+    this.addSub('datadog:secrets:result', (secrets) => { this.analyze(secrets) })
   }
 
   analyze (secrets) {
@@ -38,13 +38,14 @@ class HarcodedSecretAnalyzer extends Analyzer {
     const wafContext = waf.wafManager.newWAFContext(IastContextWrapper)
     const result = wafContext.run({ [addresses.HARCODED_SECRET]: { secrets: secrets.literals } })
 
-    if (result) {
-      this._report({ file: secrets.file, result })
+    if (result.data) {
+      this._report({ file: secrets.file, data: result.data })
     }
   }
 
   _getEvidence (value) {
-    return value.data
+    const data = JSON.parse(value.data)[0]
+    return { value: `${data.rule.id}` }
   }
 
   _getLocation (value) {
