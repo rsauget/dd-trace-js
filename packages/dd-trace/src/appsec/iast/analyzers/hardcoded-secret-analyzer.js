@@ -36,22 +36,30 @@ class HarcodedSecretAnalyzer extends Analyzer {
   analyze (secrets) {
     // TODO: check cases where there is context.
     const wafContext = waf.wafManager.newWAFContext(IastContextWrapper)
-    const result = wafContext.run({ [addresses.HARCODED_SECRET]: { secrets: secrets.literals } })
+    const result = wafContext.run({
+      [addresses.HARCODED_SECRET]: {
+        secrets: secrets.literals.map(literalInfo => literalInfo.value)
+      }
+    })
 
     if (result.data) {
-      this._report({ file: secrets.file, data: result.data })
+      const resultData = JSON.parse(result.data)
+      resultData.forEach(data => {
+        // TODO: check arrays
+        const line = secrets.literals[data.rule_matches[0].parameters[0].key_path[1]].line
+        this._report({ file: secrets.file, line, data })
+      })
     }
   }
 
   _getEvidence (value) {
-    const data = JSON.parse(value.data)[0]
-    return { value: `${data.rule.id}` }
+    return { value: `${value.data.rule.id}` }
   }
 
   _getLocation (value) {
     return {
       path: value.file,
-      line: 0,
+      line: value.line,
       isInternal: false
     }
   }
