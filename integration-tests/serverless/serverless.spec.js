@@ -3,7 +3,7 @@ const { assert } = require('chai')
 const path = require('path')
 
 describe('serverless', () => {
-  it('mini agent spawned and receives traces', async () => {
+  it('mini agent spawned and receives tracess', async () => {
     let testOutput = ''
 
     const child = await spawn(
