@@ -2,28 +2,16 @@
 
 const Analyzer = require('./vulnerability-analyzer')
 const { HARDCODED_SECRET } = require('../vulnerabilities')
-const waf = require('../../waf')
-const addresses = require('../../addresses')
-const WAFContextWrapper = require('../../waf/waf_context_wrapper')
-const log = require('../../../log')
-const path = require('path')
+const { getRelativePath } = require('../path-line')
 
-class IastContextWrapper extends WAFContextWrapper {
-  run (params) {
-    const inputs = this._formatInput(params)
-
-    if (!inputs) return
-
-    try {
-      const result = this.ddwafContext.run(inputs, this.wafTimeout)
-
-      return result
-    } catch (err) {
-      log.error('Error while running the AppSec WAF')
-      log.error(err)
-    }
-  }
+const secretRules = [{
+  id: 'github-app-token',
+  regex: /(ghu|ghs)_[0-9a-zA-Z]{36}/
+}, {
+  id: 'aws-access-token',
+  regex: /(A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}/
 }
+]
 
 class HarcodedSecretAnalyzer extends Analyzer {
   constructor () {
@@ -36,27 +24,22 @@ class HarcodedSecretAnalyzer extends Analyzer {
 
   analyze (secrets) {
     // TODO: check cases where there is context.
-    const wafContext = waf.wafManager.newWAFContext(IastContextWrapper)
+    const literalAndMatches = secrets.literals.map(literal => {
+      const match = secretRules.find(rule => literal.value.match(rule.regex))
+      return match ? { literal, match } : undefined
+    }).filter(match => !!match)
 
-    const result = wafContext.run({
-      [addresses.HARCODED_SECRET]: {
-        secrets: secrets.literals.map(literalInfo => literalInfo.value)
-      }
-    })
-
-    if (result.data) {
-      const resultData = JSON.parse(result.data)
-      resultData.forEach(data => {
-        // TODO: check arrays
-        const line = secrets.literals[data.rule_matches[0].parameters[0].key_path[1]].line
-        const file = secrets.file ? path.relative(process.cwd(), secrets.file) : 'unknown'
-        this._report({ file, line, data })
+    if (literalAndMatches) {
+      literalAndMatches.forEach(literalAndMatch => {
+        const line = literalAndMatch.literal.line
+        const file = secrets.file && getRelativePath(secrets.file)
+        this._report({ file, line, data: literalAndMatch.match.id })
       })
     }
   }
 
   _getEvidence (value) {
-    return { value: `${value.data.rule.id}` }
+    return { value: `${value.data}` }
   }
 
   _getLocation (value) {
