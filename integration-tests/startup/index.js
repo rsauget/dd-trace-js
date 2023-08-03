@@ -28,7 +28,7 @@ const http = require('http')
 
 const server = http.createServer((req, res) => {
   res.end('hello, world\n')
-}).listen(0, () => {
+}).listen(0, '127.0.0.1', () => {
   const port = server.address().port
   process.send({ port })
 })

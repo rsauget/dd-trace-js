@@ -25,7 +25,7 @@ class HttpClientPlugin extends ClientPlugin {
     const options = args.options
     const agent = options.agent || options._defaultAgent || http.globalAgent || {}
     const protocol = options.protocol || agent.protocol || 'http:'
-    const hostname = options.hostname || options.host || 'localhost'
+    const hostname = options.hostname || options.host || '127.0.0.1'
     const host = options.port ? `${hostname}:${options.port}` : hostname
     const pathname = options.path || options.pathname
     const path = pathname ? pathname.split(/[?#]/)[0] : '/'

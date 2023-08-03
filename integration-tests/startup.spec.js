@@ -40,7 +40,9 @@ describe('startup', () => {
       proc = await spawnProc(startupTestFile, {
         cwd,
         env: {
-          AGENT_PORT: agent.port
+          AGENT_PORT: agent.port,
+          // HACK: Figure out why it's needed for 127.0.0.1 but not localhost.
+          DD_TRACE_DISABLED_PLUGINS: 'dns'
         }
       })
       return curlAndAssertMessage(agent, proc, ({ headers, payload }) => {
@@ -57,11 +59,13 @@ describe('startup', () => {
       proc = await spawnProc(startupTestFile, {
         cwd,
         env: {
-          AGENT_URL: `http://localhost:${agent.port}`
+          AGENT_URL: `http://127.0.0.1:${agent.port}`,
+          // HACK: Figure out why it's needed for 127.0.0.1 but not localhost.
+          DD_TRACE_DISABLED_PLUGINS: 'dns'
         }
       })
       return curlAndAssertMessage(agent, proc, ({ headers, payload }) => {
-        assert.propertyVal(headers, 'host', `localhost:${agent.port}`)
+        assert.propertyVal(headers, 'host', `127.0.0.1:${agent.port}`)
         assert.isArray(payload)
         assert.strictEqual(payload.length, 1)
         assert.isArray(payload[0])
@@ -85,7 +89,9 @@ describe('startup', () => {
       proc = await spawnProc(startupTestFile, {
         cwd,
         env: {
-          DD_TRACE_AGENT_PORT: agent.port
+          DD_TRACE_AGENT_PORT: agent.port,
+          // HACK: Figure out why it's needed for 127.0.0.1 but not localhost.
+          DD_TRACE_DISABLED_PLUGINS: 'dns'
         }
       })
       return curlAndAssertMessage(agent, proc, ({ headers, payload }) => {
@@ -102,11 +108,13 @@ describe('startup', () => {
       proc = await spawnProc(startupTestFile, {
         cwd,
         env: {
-          DD_TRACE_AGENT_URL: `http://localhost:${agent.port}`
+          DD_TRACE_AGENT_URL: `http://127.0.0.1:${agent.port}`,
+          // HACK: Figure out why it's needed for 127.0.0.1 but not localhost.
+          DD_TRACE_DISABLED_PLUGINS: 'dns'
         }
       })
       return curlAndAssertMessage(agent, proc, ({ headers, payload }) => {
-        assert.propertyVal(headers, 'host', `localhost:${agent.port}`)
+        assert.propertyVal(headers, 'host', `127.0.0.1:${agent.port}`)
         assert.isArray(payload)
         assert.strictEqual(payload.length, 1)
         assert.isArray(payload[0])
@@ -129,7 +137,13 @@ describe('startup', () => {
     })
 
     it('works for hostname and port', async () => {
-      proc = await spawnProc(startupTestFile)
+      proc = await spawnProc(startupTestFile, {
+        cwd,
+        env: {
+          // HACK: Figure out why it's needed for 127.0.0.1 but not localhost.
+          DD_TRACE_DISABLED_PLUGINS: 'dns'
+        }
+      })
       return curlAndAssertMessage(agent, proc, ({ headers, payload }) => {
         assert.propertyVal(headers, 'host', '127.0.0.1:8126')
         assert.isArray(payload)
@@ -144,7 +158,9 @@ describe('startup', () => {
       proc = await spawnProc(startupTestFile, {
         cwd,
         env: {
-          STEALTHY_REQUIRE: 'true'
+          STEALTHY_REQUIRE: 'true',
+          // HACK: Figure out why it's needed for 127.0.0.1 but not localhost.
+          DD_TRACE_DISABLED_PLUGINS: 'dns'
         }
       })
       return curlAndAssertMessage(agent, proc, ({ headers, payload }) => {

@@ -160,7 +160,7 @@ function spawnProc (filename, options = {}) {
   return new Promise((resolve, reject) => {
     proc
       .on('message', ({ port }) => {
-        proc.url = `http://localhost:${port}`
+        proc.url = `http://127.0.0.1:${port}`
         resolve(proc)
       })
       .on('error', reject)
