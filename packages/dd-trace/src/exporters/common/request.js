@@ -136,7 +136,6 @@ function request (data, options, callback) {
     })
 
     req.setTimeout(timeout, req.abort)
-
     if (isReadable) {
       data.pipe(req) // TODO: Validate whether this is actually retriable.
     } else {

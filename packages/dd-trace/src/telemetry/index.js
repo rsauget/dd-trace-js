@@ -22,6 +22,7 @@ const sentIntegrations = new Set()
 
 function getIntegrations () {
   const newIntegrations = []
+  debugger
   for (const pluginName in pluginManager._pluginsByName) {
     if (sentIntegrations.has(pluginName)) {
       continue
@@ -116,6 +117,7 @@ function start (aConfig, thePluginManager) {
   }
   config = aConfig
   pluginManager = thePluginManager
+  debugger
   application = createAppObject(config)
   host = createHostObject()
   heartbeatInterval = config.telemetry.heartbeatInterval
@@ -186,5 +188,9 @@ module.exports = {
   start,
   stop,
   updateIntegrations,
-  updateConfig
+  updateConfig,
+  getIntegrations,
+  config,
+  application,
+  host
 }

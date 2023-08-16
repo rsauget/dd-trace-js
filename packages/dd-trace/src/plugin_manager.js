@@ -167,4 +167,8 @@ module.exports = class PluginManager {
 
     return sharedConfig
   }
+
+  _maybeEnable (plugin) {
+    maybeEnable(plugin)
+  }
 }

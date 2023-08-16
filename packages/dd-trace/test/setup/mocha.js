@@ -20,7 +20,9 @@ global.withPeerService = withPeerService
 global.testAgent = {
   expectedServiceName: null,
   schemaVersionName: null,
-  sessionToken: null
+  sessionToken: null,
+  plugin: null,
+  pluginVersion: null,
 }
 
 const packageVersionFailures = Object.create({})
@@ -203,6 +205,7 @@ function withVersions (plugin, modules, range, cb) {
   const instrumentations = typeof plugin === 'string' ? loadInst(plugin) : [].concat(plugin)
   const names = instrumentations.map(instrumentation => instrumentation.name)
 
+  debugger
   modules = [].concat(modules)
 
   names.forEach(name => {
@@ -217,6 +220,8 @@ function withVersions (plugin, modules, range, cb) {
     cb = range
     range = null
   }
+
+  global.testAgent.plugin = plugin
 
   modules.forEach(moduleName => {
     const testVersions = new Map()
@@ -241,7 +246,7 @@ function withVersions (plugin, modules, range, cb) {
       .map(v => Object.assign({}, v[1], { version: v[0] }))
       .forEach(v => {
         const versionPath = `${__dirname}/../../../../versions/${moduleName}@${v.test}/node_modules`
-
+        global.testAgent.pluginVersion = v
         // afterEach contains currentTest data
         // after doesn't contain test data nor know if any tests passed/failed
         let moduleVersionDidFail = false
@@ -277,6 +282,8 @@ function withVersions (plugin, modules, range, cb) {
 
             process.env.NODE_PATH = nodePath
             require('module').Module._initPaths()
+            global.testAgent.plugin = null
+            global.testAgent.pluginVersion = null
           })
         })
       })

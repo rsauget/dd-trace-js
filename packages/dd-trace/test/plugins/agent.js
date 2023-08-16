@@ -11,14 +11,17 @@ const ritm = require('../../src/ritm')
 const { storage } = require('../../../datadog-core')
 const sinon = require('sinon')
 const writer = require('../../src/exporters/agent/writer.js')
+const telemetry = require('../../src/telemetry/index.js')
+const { sendData } = require('../../src/telemetry/send-data.js')
 const tracingPlugin = require('../../src/plugins/tracing.js')
+const plugins = require("../../src/plugins")
 
 const handlers = new Set()
 let sockets = []
 let agent = null
 let listener = null
 let tracer = null
-let plugins = []
+let pluginNames = []
 let useTestAgent = false
 const stubs = {
   originalMethods: {},
@@ -117,7 +120,7 @@ function addEnvironmentVariablesToHeaders (headers) {
       Object.entries(process.env)
         .filter(([key]) => key.startsWith('DD_'))
     )
-    for (const pluginName of plugins) {
+    for (const pluginName of pluginNames) {
       // check for plugin level service name configuration
       const pluginConfig = tracer._pluginManager._configsByName[pluginName]
       if (pluginConfig && pluginConfig.service) {
@@ -255,6 +258,46 @@ module.exports = {
       })
     })
 
+    agent.post('/telemetry/proxy/api/v2/apmtelemetry', (req, res) => {
+      res.status(202).send({
+        endpoints: availableEndpoints
+      })
+      console.log('telemetry')
+      if (useTestAgent) {
+        const testAgentUrl = process.env.DD_TEST_AGENT_URL || 'http://127.0.0.1:9126'
+        debugger
+        // remove incorrect headers
+        delete req.headers['host']
+        delete req.headers['content-type']
+        delete req.headers['content-length']
+
+        let requestData = '';
+
+        const testAgentReq = http.request(
+          `${testAgentUrl}/telemetry/proxy/api/v2/apmtelemetry`, {
+            method: 'POST',
+            headers: {
+              ...req.headers,
+              'X-Datadog-Agent-Proxy-Disabled': 'True',
+              'Content-Type': 'application/json'
+            }
+          })
+
+        req.on('data', (chunk) => {
+          // Data is being streamed, so concatenate it
+          testAgentReq.write(chunk)
+        });
+   
+        req.on('end', () => {
+          // Request data has been fully read
+          // You can access the concatenated data in requestData variable
+          console.log(requestData);
+          // Process the request data as required
+          testAgentReq.end()
+        });
+      }
+    })
+
     agent.put('/v0.5/traces', (req, res) => {
       res.status(404).end()
     })
@@ -286,33 +329,49 @@ module.exports = {
     })
 
     pluginName = [].concat(pluginName)
-    plugins = pluginName
+    pluginNames = pluginName
+    debugger
     config = [].concat(config)
 
     server.on('close', () => {
       tracer = null
     })
-
     tracer.init(Object.assign({}, {
       service: 'test',
       env: 'tester',
       port,
       flushInterval: 0,
-      plugins: false
+      plugins: false,
+      telemetry: {
+        enabled: true
+      }
     }, tracerConfig))
 
     tracer.setUrl(`http://127.0.0.1:${port}`)
 
     for (let i = 0, l = pluginName.length; i < l; i++) {
+      tracer._pluginManager._maybeEnable(plugins[pluginName[i]])
+      tracer._pluginManager.loadPlugin([pluginName[i]])
+      tracer._pluginManager._pluginsByName[pluginName[i]]._enabled = true
       tracer.use(pluginName[i], config[i])
     }
 
+    const integrations = telemetry.getIntegrations()
+    if (integrations.length !== 0) {
+      for (let integration of integrations) {
+        if (integration.name === global.testAgent.plugin) {
+          integration.version = global.testAgent.pluginVersion.version
+        }
+      }
+      sendData(telemetry.config, telemetry.application, telemetry.host, 'app-integrations-change', { integrations })
+    }
+    
     return promise
   },
 
   reload (pluginName, config) {
     pluginName = [].concat(pluginName)
-    plugins = pluginName
+    pluginNames = pluginName
     config = [].concat(config)
 
     for (let i = 0, l = pluginName.length; i < l; i++) {
@@ -398,7 +457,7 @@ module.exports = {
     sockets = []
     agent = null
     handlers.clear()
-    for (const plugin of plugins) {
+    for (const plugin of pluginNames) {
       tracer.use(plugin, { enabled: false })
     }
     if (ritmReset !== false) {
