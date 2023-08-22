@@ -130,6 +130,13 @@ function addEnvironmentVariablesToHeaders (headers) {
       }
     }
 
+    // add plugin name and plugin version to headers, this is used for verifying tested
+    // integration version ranges
+    if (global.testAgent.plugin && global.testAgent.pluginVersion) {
+      ddEnvVars.set('DD_PLUGIN', global.testAgent.plugin)
+      ddEnvVars.set('DD_PLUGIN_VERSION', global.testAgent.pluginVersion)
+    }
+
     // serialize the DD environment variables into a string of k=v pairs separated by comma
     const serializedEnvVars = Array.from(ddEnvVars.entries())
       .map(([key, value]) => `${key}=${value}`)
@@ -265,7 +272,7 @@ module.exports = {
       console.log('telemetry')
       if (useTestAgent) {
         const testAgentUrl = process.env.DD_TEST_AGENT_URL || 'http://127.0.0.1:9126'
-        debugger
+        
         // remove incorrect headers
         delete req.headers['host']
         delete req.headers['content-type']
@@ -330,7 +337,7 @@ module.exports = {
 
     pluginName = [].concat(pluginName)
     pluginNames = pluginName
-    debugger
+    
     config = [].concat(config)
 
     server.on('close', () => {
@@ -356,15 +363,16 @@ module.exports = {
       tracer.use(pluginName[i], config[i])
     }
 
-    const integrations = telemetry.getIntegrations()
-    if (integrations.length !== 0) {
-      for (let integration of integrations) {
-        if (integration.name === global.testAgent.plugin) {
-          integration.version = global.testAgent.pluginVersion.version
-        }
-      }
-      sendData(telemetry.config, telemetry.application, telemetry.host, 'app-integrations-change', { integrations })
-    }
+    // const integrations = telemetry.getIntegrations()
+    // if (integrations.length !== 0) {
+    //   for (let integration of integrations) {
+    //     if (integration.name === global.testAgent.plugin) {
+    //       integration.version = global.testAgent.pluginVersion.version
+    //     }
+    //   }
+    //   sendData(telemetry.config, telemetry.application, telemetry.host, 'app-integrations-change', { integrations })
+    // }
+    telemetry.updateIntegrations()
     
     return promise
   },

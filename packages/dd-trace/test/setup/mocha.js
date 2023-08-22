@@ -205,7 +205,7 @@ function withVersions (plugin, modules, range, cb) {
   const instrumentations = typeof plugin === 'string' ? loadInst(plugin) : [].concat(plugin)
   const names = instrumentations.map(instrumentation => instrumentation.name)
 
-  debugger
+  
   modules = [].concat(modules)
 
   names.forEach(name => {
@@ -220,8 +220,6 @@ function withVersions (plugin, modules, range, cb) {
     cb = range
     range = null
   }
-
-  global.testAgent.plugin = plugin
 
   modules.forEach(moduleName => {
     const testVersions = new Map()
@@ -246,15 +244,17 @@ function withVersions (plugin, modules, range, cb) {
       .map(v => Object.assign({}, v[1], { version: v[0] }))
       .forEach(v => {
         const versionPath = `${__dirname}/../../../../versions/${moduleName}@${v.test}/node_modules`
-        global.testAgent.pluginVersion = v
         // afterEach contains currentTest data
         // after doesn't contain test data nor know if any tests passed/failed
         let moduleVersionDidFail = false
+
+        global.testAgent.plugin = plugin  
 
         describe(`with ${moduleName} ${v.range} (${v.version})`, () => {
           let nodePath
 
           before(() => {
+            global.testAgent.pluginVersion = v.version
             nodePath = process.env.NODE_PATH
             process.env.NODE_PATH = [process.env.NODE_PATH, versionPath]
               .filter(x => x && x !== 'undefined')
@@ -282,7 +282,6 @@ function withVersions (plugin, modules, range, cb) {
 
             process.env.NODE_PATH = nodePath
             require('module').Module._initPaths()
-            global.testAgent.plugin = null
             global.testAgent.pluginVersion = null
           })
         })
