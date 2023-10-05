@@ -78,7 +78,6 @@
     "@opentelemetry/core": "^1.14.0",
     "crypto-randomuuid": "^1.0.0",
     "diagnostics_channel": "^1.1.0",
-    "fastify": "4.23.0",
     "ignore": "^5.2.4",
     "import-in-the-middle": "^1.4.2",
     "int64-buffer": "^0.1.9",
