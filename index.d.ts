@@ -294,6 +294,33 @@ export declare interface TracerOptions {
   profiling?: boolean
 
   /**
+   * Span service and operation naming schema version.
+   * @default "v0"
+   */
+  spanAttributeSchema?: "v0" | "v1"
+
+  /**
+   * Force span service names to match tracer-wide configured service name,
+   * unless a more specific service name is specified in plugin-level options.
+   * @default false
+   */
+  spanRemoveIntegrationFromService?: boolean
+
+  /**
+   * Whether to enable computation of `peer.service` tag representing remote
+   * target in spans corresponding to client calls.
+   * This behaviour is enabled by default if `spanAttributeSchema` is v1 or higher.
+   * @default false
+   */
+  spanComputePeerService: boolean
+
+  /**
+   * Remap specific `peer.service` names using comma-separated `oldname:newname`
+   * values. Only used when `spanComputePeerService` is enabled.
+   */
+  peerServiceMapping: string
+
+  /**
    * Options specific for the Dogstatsd agent.
    */
   dogstatsd?: {
