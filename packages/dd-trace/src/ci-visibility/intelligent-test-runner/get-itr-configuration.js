@@ -1,5 +1,6 @@
 const request = require('../../exporters/common/request')
 const id = require('../../id')
+const log = require('../../log')
 
 function getItrConfiguration ({
   url,
@@ -76,7 +77,9 @@ function getItrConfiguration ({
         const isCodeCoverageEnabled = !!process.env.DD_CIVISIBILITY_FORCE_COVERAGE || codeCoverage
         const isSuitesSkippingEnabled = !!process.env.DD_CIVISIBILITY_FORCE_TEST_SKIPPING || testsSkipping
 
-        done(null, { isCodeCoverageEnabled, isSuitesSkippingEnabled })
+        const config = { isCodeCoverageEnabled, isSuitesSkippingEnabled }
+        log.debug(() => `Received settings: ${config}`)
+        done(null, config)
       } catch (err) {
         done(err)
       }
