@@ -5,6 +5,7 @@ const log = require('../../../log')
 
 const { AgentlessCiVisibilityEncoder } = require('../../../encode/agentless-ci-visibility')
 const BaseWriter = require('../../../exporters/common/writer')
+const { incrementMetric } = require('../../../ci-visibility/telemetry')
 
 class Writer extends BaseWriter {
   constructor ({ url, tags, evpProxyPrefix = '' }) {
@@ -35,8 +36,11 @@ class Writer extends BaseWriter {
 
     log.debug(() => `Request to the intake: ${safeJSONStringify(options)}`)
 
+    incrementMetric('endpoint_payload.requests', { endpoint: 'test_cycle' })
     request(data, options, (err, res) => {
       if (err) {
+        // **TODO** EXTRACT TYPE OF ERROR IF WE CAN
+        incrementMetric('endpoint_payload.requests_errors', { endpoint: 'test_cycle', errorType: 'timeout' })
         log.error(err)
         done()
         return

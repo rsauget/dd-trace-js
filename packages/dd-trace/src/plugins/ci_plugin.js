@@ -20,6 +20,7 @@ const {
 const Plugin = require('./plugin')
 const { COMPONENT } = require('../constants')
 const log = require('../log')
+const { incrementMetric } = require('../ci-visibility/telemetry')
 
 module.exports = class CiPlugin extends Plugin {
   constructor (...args) {
@@ -71,6 +72,7 @@ module.exports = class CiPlugin extends Plugin {
           ...testSessionSpanMetadata
         }
       })
+      this.eventStarted('session')
       this.testModuleSpan = this.tracer.startSpan(`${this.constructor.id}.test_module`, {
         childOf: this.testSessionSpan,
         tags: {
@@ -79,6 +81,7 @@ module.exports = class CiPlugin extends Plugin {
           ...testModuleSpanMetadata
         }
       })
+      this.eventStarted('module')
     })
 
     this.addSub(`ci:${this.constructor.id}:itr:skipped-suites`, ({ skippedSuites, frameworkVersion }) => {
@@ -128,7 +131,16 @@ module.exports = class CiPlugin extends Plugin {
     }
   }
 
+  eventStarted (type) {
+    incrementMetric('event_created', { type, testFramework: this.constructor.id })
+  }
+
+  eventFinished (type) {
+    incrementMetric('event_finished', { type, testFramework: this.constructor.id })
+  }
+
   startTestSpan (testName, testSuite, testSuiteSpan, extraTags = {}) {
+    this.eventStarted('test')
     const childOf = getTestParentSpan(this.tracer)
 
     let testTags = {

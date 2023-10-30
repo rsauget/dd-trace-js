@@ -74,6 +74,7 @@ class MochaPlugin extends CiPlugin {
       })
       this.enter(testSuiteSpan, store)
       this._testSuites.set(testSuite, testSuiteSpan)
+      this.eventStarted('suite')
     })
 
     this.addSub('ci:mocha:test-suite:finish', (status) => {
@@ -85,6 +86,7 @@ class MochaPlugin extends CiPlugin {
           span.setTag(TEST_STATUS, status)
         }
         span.finish()
+        this.eventFinished('suite')
       }
     })
 
@@ -113,6 +115,7 @@ class MochaPlugin extends CiPlugin {
         span.setTag(TEST_STATUS, status)
 
         span.finish()
+        this.eventFinished('test')
         finishAllTraceSpans(span)
       }
     })
@@ -179,7 +182,9 @@ class MochaPlugin extends CiPlugin {
         )
 
         this.testModuleSpan.finish()
+        this.eventFinished('module')
         this.testSessionSpan.finish()
+        this.eventFinished('session')
         finishAllTraceSpans(this.testSessionSpan)
       }
       this.itrConfig = null

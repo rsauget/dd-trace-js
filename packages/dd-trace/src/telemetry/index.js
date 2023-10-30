@@ -74,6 +74,8 @@ function formatConfig (config) {
 
 function onBeforeExit () {
   process.removeListener('beforeExit', onBeforeExit)
+  debugger
+  metricsManager.send(config, application, host)
   sendData(config, application, host, 'app-closing')
 }
 
@@ -145,6 +147,7 @@ function start (aConfig, thePluginManager) {
   sendData(config, application, host, 'app-started', appStarted())
   heartbeat(config, application, host)
   interval = setInterval(() => {
+    debugger
     metricsManager.send(config, application, host)
     logs.send(config, application, host)
   }, heartbeatInterval)
