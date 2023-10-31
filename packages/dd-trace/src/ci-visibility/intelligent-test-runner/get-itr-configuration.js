@@ -1,7 +1,7 @@
 const request = require('../../exporters/common/request')
 const id = require('../../id')
 const log = require('../../log')
-const { incrementMetric } = require('../../ci-visibility/telemetry')
+const { incrementMetric, distributionMetric } = require('../../ci-visibility/telemetry')
 
 function getItrConfiguration ({
   url,
@@ -63,7 +63,10 @@ function getItrConfiguration ({
 
   incrementMetric('git_requests.settings')
 
+  const startTime = Date.now()
   request(data, options, (err, res) => {
+    const duration = Date.now() - startTime
+    distributionMetric('git_requests.settings_ms', {}, duration)
     if (err) {
       // ** TODO ** figure out better error type
       incrementMetric('git_requests.settings_errors', { errorType: 'request' })

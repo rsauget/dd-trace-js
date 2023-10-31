@@ -31,10 +31,16 @@ function formatEventTags ({
   })
 }
 
+// eventTags -> metricTags better name?
 function incrementMetric (metric, eventTags = {}, value = 1) {
   ciVisibilityMetrics.count(metric, formatEventTags(eventTags)).inc(value)
 }
 
+function distributionMetric (metric, eventTags, measure) {
+  ciVisibilityMetrics.distribution(metric, formatEventTags(eventTags)).track(measure)
+}
+
 module.exports = {
-  incrementMetric
+  incrementMetric,
+  distributionMetric
 }

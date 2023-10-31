@@ -132,6 +132,10 @@ module.exports = class CiPlugin extends Plugin {
     }
   }
 
+  emptyCodeCoverage () {
+    incrementMetric('code_coverage.is_empty')
+  }
+
   markUnskippable (testLevel) {
     incrementMetric('itr_unskippable', { type: testLevel })
   }
