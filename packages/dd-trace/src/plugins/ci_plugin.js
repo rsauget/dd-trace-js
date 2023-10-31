@@ -100,6 +100,7 @@ module.exports = class CiPlugin extends Plugin {
           }
         }).finish()
       })
+      incrementMetric('itr_skipped', { eventType: 'suite' }, skippedSuites.length)
     })
   }
 
@@ -131,6 +132,15 @@ module.exports = class CiPlugin extends Plugin {
     }
   }
 
+  markUnskippable (testLevel) {
+    incrementMetric('itr_unskippable', { type: testLevel })
+  }
+
+  markForcedToRun (testLevel) {
+    incrementMetric('itr_forced_run', { type: testLevel })
+  }
+
+  // should this be test level as argument?
   eventStarted (type) {
     incrementMetric('event_created', { type, testFramework: this.constructor.id })
   }

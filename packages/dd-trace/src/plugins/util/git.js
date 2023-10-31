@@ -19,6 +19,7 @@ const {
   GIT_COMMIT_AUTHOR_NAME,
   CI_WORKSPACE_PATH
 } = require('./tags')
+const { incrementMetric } = require('../../ci-visibility/telemetry')
 
 const GIT_REV_LIST_MAX_BUFFER = 8 * 1024 * 1024 // 8MB
 
@@ -32,6 +33,7 @@ function isDirectory (path) {
 }
 
 function isShallowRepository () {
+  incrementMetric('git.command', { command: 'check_shallow' })
   return sanitizedExec('git', ['rev-parse', '--is-shallow-repository']) === 'true'
 }
 
@@ -71,6 +73,7 @@ function unshallowRepository () {
     defaultRemoteName
   ]
 
+  incrementMetric('git.command', { command: 'unshallow' })
   try {
     execFileSync('git', [
       ...baseGitOptions,
@@ -95,10 +98,12 @@ function unshallowRepository () {
 }
 
 function getRepositoryUrl () {
+  incrementMetric('git.command', { command: 'get_repository' })
   return sanitizedExec('git', ['config', '--get', 'remote.origin.url'])
 }
 
 function getLatestCommits () {
+  incrementMetric('git.command', { command: 'get_local_commits' })
   try {
     return execFileSync('git', ['log', '--format=%H', '-n 1000', '--since="1 month ago"'], { stdio: 'pipe' })
       .toString()
@@ -113,6 +118,7 @@ function getLatestCommits () {
 function getCommitsToUpload (commitsToExclude, commitsToInclude) {
   const commitsToExcludeString = commitsToExclude.map(commit => `^${commit}`)
 
+  incrementMetric('git.command', { command: 'get_objects' })
   try {
     return execFileSync(
       'git',
@@ -147,6 +153,7 @@ function generatePackFilesForCommits (commitsToUpload) {
   const temporaryPath = path.join(tmpFolder, randomPrefix)
   const cwdPath = path.join(process.cwd(), randomPrefix)
 
+  incrementMetric('git.command', { command: 'pack_objects' })
   // Generates pack files to upload and
   // returns the ordered list of packfiles' paths
   function execGitPackObjects (targetPath) {

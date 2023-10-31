@@ -35,6 +35,11 @@ class MochaPlugin extends CiPlugin {
       }
       const testSuiteSpan = this._testSuites.get(suiteFile)
 
+      // empty code coverage
+      if (!coverageFiles.length) {
+        this.emptyCodeCoverage()
+      }
+
       const relativeCoverageFiles = [...coverageFiles, suiteFile]
         .map(filename => getTestSuitePath(filename, this.sourceRoot))
 
@@ -59,9 +64,11 @@ class MochaPlugin extends CiPlugin {
       )
       if (isUnskippable) {
         testSuiteMetadata[TEST_ITR_UNSKIPPABLE] = 'true'
+        this.markUnskippable('suite')
       }
       if (isForcedToRun) {
         testSuiteMetadata[TEST_ITR_FORCED_RUN] = 'true'
+        this.markForcedToRun('suite')
       }
 
       const testSuiteSpan = this.tracer.startSpan('mocha.test_suite', {

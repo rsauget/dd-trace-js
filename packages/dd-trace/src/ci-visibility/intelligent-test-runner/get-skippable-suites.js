@@ -1,5 +1,6 @@
 const request = require('../../exporters/common/request')
 const log = require('../../log')
+const { incrementMetric } = require('../../ci-visibility/telemetry')
 
 function getSkippableSuites ({
   url,
@@ -59,8 +60,12 @@ function getSkippableSuites ({
     }
   })
 
+  incrementMetric('itr_skippable_tests.request')
+
   request(data, options, (err, res) => {
     if (err) {
+      // ** TODO ** figure out better error type
+      incrementMetric('itr_skippable_tests.request_errors', { errorType: 'request' })
       done(err)
     } else {
       let skippableSuites = []
@@ -74,6 +79,7 @@ function getSkippableSuites ({
             }
             return { suite, name }
           })
+        incrementMetric(`itr_skippable_tests.response_${testLevel}s`, {}, skippableSuites.length)
         log.debug(() => `Number of received skippable ${testLevel}s: ${skippableSuites.length}`)
         done(null, skippableSuites)
       } catch (err) {

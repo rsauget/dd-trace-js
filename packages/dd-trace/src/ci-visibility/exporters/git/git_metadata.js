@@ -15,6 +15,8 @@ const {
   unshallowRepository
 } = require('../../../plugins/util/git')
 
+const { incrementMetric } = require('../../../ci-visibility/telemetry')
+
 const isValidSha1 = (sha) => /^[0-9a-f]{40}$/.test(sha)
 const isValidSha256 = (sha) => /^[0-9a-f]{64}$/.test(sha)
 
@@ -78,8 +80,12 @@ function getCommitsToExclude ({ url, isEvpProxy, repositoryUrl }, callback) {
     }))
   })
 
+  incrementMetric('git_requests.search_commits')
+
   request(localCommitData, options, (err, response) => {
     if (err) {
+      // ** TODO ** figure out better error type
+      incrementMetric('git_requests.search_commits_errors', { errorType: 'request' })
       const error = new Error(`Error fetching commits to exclude: ${err.message}`)
       return callback(error)
     }
@@ -141,8 +147,12 @@ function uploadPackFile ({ url, isEvpProxy, packFileToUpload, repositoryUrl, hea
     delete options.headers['dd-api-key']
   }
 
+  incrementMetric('git_requests.objects_pack')
+
   request(form, options, (err, _, statusCode) => {
     if (err) {
+      // ** TODO ** figure out a proper error type
+      incrementMetric('git_requests.objects_pack_errors', { errorType: 'request' })
       const error = new Error(`Could not upload packfiles: status code ${statusCode}: ${err.message}`)
       return callback(error)
     }

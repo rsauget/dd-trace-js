@@ -3,7 +3,6 @@ const { truncateSpan, normalizeSpan } = require('./tags-processors')
 const { AgentEncoder } = require('./0.4')
 const { version: ddTraceVersion } = require('../../../../package.json')
 const id = require('../../../dd-trace/src/id')
-const { incrementMetric } = require('../../../dd-trace/src/ci-visibility/telemetry')
 const ENCODING_VERSION = 1
 
 const ALLOWED_CONTENT_TYPES = ['test_session_end', 'test_module_end', 'test_suite_end', 'test']
@@ -260,7 +259,6 @@ class AgentlessCiVisibilityEncoder extends AgentEncoder {
     this._eventCount += events.length
 
     for (const event of events) {
-      incrementMetric('events_enqueued_for_serialization', {})
       this._encodeEvent(bytes, event)
     }
   }

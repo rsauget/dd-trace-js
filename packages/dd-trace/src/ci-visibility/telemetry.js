@@ -3,7 +3,7 @@ const telemetryMetrics = require('../telemetry/metrics')
 const ciVisibilityMetrics = telemetryMetrics.manager.namespace('civisibility')
 
 function remoteEmptyTags (tags) {
-  Object.keys(tags).reduce((acc, tag) => {
+  return Object.keys(tags).reduce((acc, tag) => {
     if (tags[tag]) {
       acc[tag] = tags[tag]
     }
@@ -11,16 +11,28 @@ function remoteEmptyTags (tags) {
   }, {})
 }
 
-function formatEventTags ({ type, testFramework, errorType }) {
+function formatEventTags ({
+  type,
+  testFramework,
+  errorType,
+  endpoint,
+  command,
+  isCodeCoverageEnabled,
+  isSuitesSkippingEnabled
+}) {
   return remoteEmptyTags({
     event_type: type,
     test_framework: testFramework,
-    error_type: errorType
+    error_type: errorType,
+    endpoint,
+    command,
+    coverage_enabled: isCodeCoverageEnabled,
+    itrskip_enabled: isSuitesSkippingEnabled
   })
 }
 
-function incrementMetric (metric, eventTags) {
-  ciVisibilityMetrics.count(metric, formatEventTags(eventTags)).inc()
+function incrementMetric (metric, eventTags = {}, value = 1) {
+  ciVisibilityMetrics.count(metric, formatEventTags(eventTags)).inc(value)
 }
 
 module.exports = {
