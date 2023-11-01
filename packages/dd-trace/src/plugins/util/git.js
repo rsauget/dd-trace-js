@@ -91,20 +91,20 @@ function unshallowRepository () {
       ...baseGitOptions,
       revParseHead
     ], { stdio: 'pipe' })
-  } catch (e) {
+  } catch (err) {
     // If the local HEAD is a commit that has not been pushed to the remote, the above command will fail.
-    log.error(e)
-    incrementCountMetric(TELEMETRY_GIT_COMMAND_ERRORS, { command: 'unshallow', errorType: e.status })
+    log.error(err)
+    incrementCountMetric(TELEMETRY_GIT_COMMAND_ERRORS, { command: 'unshallow', exitCode: err.status })
     const upstreamRemote = sanitizedExec('git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'])
     try {
       execFileSync('git', [
         ...baseGitOptions,
         upstreamRemote
       ], { stdio: 'pipe' })
-    } catch (e) {
+    } catch (err) {
       // If the CI is working on a detached HEAD or branch tracking hasn’t been set up, the above command will fail.
-      log.error(e)
-      incrementCountMetric(TELEMETRY_GIT_COMMAND_ERRORS, { command: 'unshallow', errorType: e.status })
+      log.error(err)
+      incrementCountMetric(TELEMETRY_GIT_COMMAND_ERRORS, { command: 'unshallow', exitCode: err.status })
       // We use sanitizedExec here because if this last option fails, we'll give up.
       sanitizedExec(
         'git',

@@ -22,7 +22,9 @@ const {
   TELEMETRY_GIT_REQUESTS_SEARCH_COMMITS_MS,
   TELEMETRY_GIT_REQUESTS_SEARCH_COMMITS_ERRORS,
   TELEMETRY_GIT_REQUESTS_OBJECT_PACKFILES_NUM,
-  TELEMETRY_GIT_REQUESTS_OBJECT_PACKFILES
+  TELEMETRY_GIT_REQUESTS_OBJECT_PACKFILES,
+  TELEMETRY_GIT_REQUESTS_OBJECT_PACKFILES_MS,
+  TELEMETRY_GIT_REQUESTS_OBJECT_PACKFILES_ERRORS
 } = require('../../../ci-visibility/telemetry')
 
 const isValidSha1 = (sha) => /^[0-9a-f]{40}$/.test(sha)
@@ -163,10 +165,10 @@ function uploadPackFile ({ url, isEvpProxy, packFileToUpload, repositoryUrl, hea
   const startTime = performance.now()
 
   request(form, options, (err, _, statusCode) => {
-    distributionMetric(TELEMETRY_GIT_REQUESTS_SEARCH_COMMITS_MS, {}, performance.now() - startTime)
+    distributionMetric(TELEMETRY_GIT_REQUESTS_OBJECT_PACKFILES_MS, {}, performance.now() - startTime)
     if (err) {
       // ** TODO ** figure out a proper error type
-      incrementCountMetric(TELEMETRY_GIT_REQUESTS_SEARCH_COMMITS_ERRORS, { errorType: 'request' })
+      incrementCountMetric(TELEMETRY_GIT_REQUESTS_OBJECT_PACKFILES_ERRORS, { errorType: 'request' })
       const error = new Error(`Could not upload packfiles: status code ${statusCode}: ${err.message}`)
       return callback(error)
     }
