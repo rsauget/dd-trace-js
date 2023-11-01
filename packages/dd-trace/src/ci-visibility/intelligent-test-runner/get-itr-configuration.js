@@ -1,7 +1,14 @@
 const request = require('../../exporters/common/request')
 const id = require('../../id')
 const log = require('../../log')
-const { incrementMetric, distributionMetric } = require('../../ci-visibility/telemetry')
+const {
+  incrementCountMetric,
+  distributionMetric,
+  TELEMETRY_GIT_REQUESTS_SETTINGS,
+  TELEMETRY_GIT_REQUESTS_SETTINGS_MS,
+  TELEMETRY_GIT_REQUESTS_SETTINGS_ERRORS,
+  TELEMETRY_GIT_REQUESTS_SETTINGS_RESPONSE
+} = require('../../ci-visibility/telemetry')
 
 function getItrConfiguration ({
   url,
@@ -61,15 +68,14 @@ function getItrConfiguration ({
     }
   })
 
-  incrementMetric('git_requests.settings')
+  incrementCountMetric(TELEMETRY_GIT_REQUESTS_SETTINGS)
 
-  const startTime = Date.now()
+  const startTime = performance.now()
   request(data, options, (err, res) => {
-    const duration = Date.now() - startTime
-    distributionMetric('git_requests.settings_ms', {}, duration)
+    distributionMetric(TELEMETRY_GIT_REQUESTS_SETTINGS_MS, {}, performance.now() - startTime)
     if (err) {
       // ** TODO ** figure out better error type
-      incrementMetric('git_requests.settings_errors', { errorType: 'request' })
+      incrementCountMetric(TELEMETRY_GIT_REQUESTS_SETTINGS_ERRORS, { errorType: 'request' })
       done(err)
     } else {
       try {
@@ -82,7 +88,7 @@ function getItrConfiguration ({
           }
         } = JSON.parse(res)
         const config = { isCodeCoverageEnabled, isSuitesSkippingEnabled }
-        incrementMetric('git_requests.settings_response', config)
+        incrementCountMetric(TELEMETRY_GIT_REQUESTS_SETTINGS_RESPONSE, config)
         log.debug(() => `Received settings: ${config}`)
         done(null, config)
       } catch (err) {

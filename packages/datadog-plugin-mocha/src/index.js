@@ -13,9 +13,17 @@ const {
   addIntelligentTestRunnerSpanTags,
   TEST_SOURCE_START,
   TEST_ITR_UNSKIPPABLE,
-  TEST_ITR_FORCED_RUN
+  TEST_ITR_FORCED_RUN,
+  TEST_CODE_OWNERS
 } = require('../../dd-trace/src/plugins/util/test')
 const { COMPONENT } = require('../../dd-trace/src/constants')
+const {
+  TELEMETRY_EVENT_CREATED,
+  TELEMETRY_EVENT_FINISHED,
+  TELEMETRY_ITR_FORCED_TO_RUN,
+  TELEMETRY_CODE_COVERAGE_EMPTY,
+  TELEMETRY_ITR_UNSKIPPABLE
+} = require('../../dd-trace/src/ci-visibility/telemetry')
 
 class MochaPlugin extends CiPlugin {
   static get id () {
@@ -35,9 +43,8 @@ class MochaPlugin extends CiPlugin {
       }
       const testSuiteSpan = this._testSuites.get(suiteFile)
 
-      // empty code coverage
       if (!coverageFiles.length) {
-        this.emptyCodeCoverage()
+        this.telemetry.count(TELEMETRY_CODE_COVERAGE_EMPTY)
       }
 
       const relativeCoverageFiles = [...coverageFiles, suiteFile]
@@ -64,11 +71,11 @@ class MochaPlugin extends CiPlugin {
       )
       if (isUnskippable) {
         testSuiteMetadata[TEST_ITR_UNSKIPPABLE] = 'true'
-        this.markUnskippable('suite')
+        this.telemetry.count(TELEMETRY_ITR_UNSKIPPABLE, { testLevel: 'suite' })
       }
       if (isForcedToRun) {
         testSuiteMetadata[TEST_ITR_FORCED_RUN] = 'true'
-        this.markForcedToRun('suite')
+        this.telemetry.count(TELEMETRY_ITR_FORCED_TO_RUN, { testLevel: 'suite' })
       }
 
       const testSuiteSpan = this.tracer.startSpan('mocha.test_suite', {
@@ -79,9 +86,9 @@ class MochaPlugin extends CiPlugin {
           ...testSuiteMetadata
         }
       })
+      this.telemetry.ciVisEvent(TELEMETRY_EVENT_CREATED, 'suite')
       this.enter(testSuiteSpan, store)
       this._testSuites.set(testSuite, testSuiteSpan)
-      this.eventStarted('suite')
     })
 
     this.addSub('ci:mocha:test-suite:finish', (status) => {
@@ -93,7 +100,7 @@ class MochaPlugin extends CiPlugin {
           span.setTag(TEST_STATUS, status)
         }
         span.finish()
-        this.eventFinished('suite')
+        this.telemetry.ciVisEvent(TELEMETRY_EVENT_FINISHED, 'suite')
       }
     })
 
@@ -122,7 +129,11 @@ class MochaPlugin extends CiPlugin {
         span.setTag(TEST_STATUS, status)
 
         span.finish()
-        this.eventFinished('test')
+        this.telemetry.ciVisEvent(
+          TELEMETRY_EVENT_FINISHED,
+          'test',
+          { hasCodeOwners: !!span.context()._tags[TEST_CODE_OWNERS] }
+        )
         finishAllTraceSpans(span)
       }
     })
@@ -189,9 +200,9 @@ class MochaPlugin extends CiPlugin {
         )
 
         this.testModuleSpan.finish()
-        this.eventFinished('module')
+        this.telemetry.ciVisEvent(TELEMETRY_EVENT_FINISHED, 'module')
         this.testSessionSpan.finish()
-        this.eventFinished('session')
+        this.telemetry.ciVisEvent(TELEMETRY_EVENT_FINISHED, 'session')
         finishAllTraceSpans(this.testSessionSpan)
       }
       this.itrConfig = null

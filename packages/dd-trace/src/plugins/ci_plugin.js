@@ -20,7 +20,13 @@ const {
 const Plugin = require('./plugin')
 const { COMPONENT } = require('../constants')
 const log = require('../log')
-const { incrementMetric } = require('../ci-visibility/telemetry')
+const {
+  incrementCountMetric,
+  TELEMETRY_EVENT_CREATED,
+  TELEMETRY_ITR_SKIPPED
+} = require('../ci-visibility/telemetry')
+const { CI_PROVIDER_NAME, GIT_REPOSITORY_URL, GIT_COMMIT_SHA, GIT_BRANCH } = require('./util/tags')
+const { OS_VERSION, OS_PLATFORM, OS_ARCHITECTURE, RUNTIME_NAME, RUNTIME_VERSION } = require('./util/env')
 
 module.exports = class CiPlugin extends Plugin {
   constructor (...args) {
@@ -72,7 +78,7 @@ module.exports = class CiPlugin extends Plugin {
           ...testSessionSpanMetadata
         }
       })
-      this.eventStarted('session')
+      this.telemetry.ciVisEvent(TELEMETRY_EVENT_CREATED, 'session')
       this.testModuleSpan = this.tracer.startSpan(`${this.constructor.id}.test_module`, {
         childOf: this.testSessionSpan,
         tags: {
@@ -81,7 +87,7 @@ module.exports = class CiPlugin extends Plugin {
           ...testModuleSpanMetadata
         }
       })
-      this.eventStarted('module')
+      this.telemetry.ciVisEvent(TELEMETRY_EVENT_CREATED, 'module')
     })
 
     this.addSub(`ci:${this.constructor.id}:itr:skipped-suites`, ({ skippedSuites, frameworkVersion }) => {
@@ -100,8 +106,25 @@ module.exports = class CiPlugin extends Plugin {
           }
         }).finish()
       })
-      incrementMetric('itr_skipped', { eventType: 'suite' }, skippedSuites.length)
+      this.telemetry.count(TELEMETRY_ITR_SKIPPED, { testLevel: 'suite' }, skippedSuites.length)
     })
+  }
+
+  get telemetry () {
+    const testFramework = this.constructor.id
+    return {
+      ciVisEvent: function (name, testLevel, tags = {}) {
+        incrementCountMetric(name, {
+          testLevel,
+          testFramework,
+          isUnsupportedCIProvider: this.isUnsupportedCIProvider,
+          ...tags
+        })
+      },
+      count: function (name, tags = {}, value = 1) {
+        incrementCountMetric(name, tags, value)
+      }
+    }
   }
 
   configure (config) {
@@ -110,15 +133,18 @@ module.exports = class CiPlugin extends Plugin {
     this.codeOwnersEntries = getCodeOwnersFileEntries()
 
     const {
-      'git.repository_url': repositoryUrl,
-      'git.commit.sha': sha,
-      'os.version': osVersion,
-      'os.platform': osPlatform,
-      'os.architecture': osArchitecture,
-      'runtime.name': runtimeName,
-      'runtime.version': runtimeVersion,
-      'git.branch': branch
+      [GIT_REPOSITORY_URL]: repositoryUrl,
+      [GIT_COMMIT_SHA]: sha,
+      [OS_VERSION]: osVersion,
+      [OS_PLATFORM]: osPlatform,
+      [OS_ARCHITECTURE]: osArchitecture,
+      [RUNTIME_NAME]: runtimeName,
+      [RUNTIME_VERSION]: runtimeVersion,
+      [GIT_BRANCH]: branch,
+      [CI_PROVIDER_NAME]: ciProviderName
     } = this.testEnvironmentMetadata
+
+    this.isUnsupportedCIProvider = !ciProviderName
 
     this.testConfiguration = {
       repositoryUrl,
@@ -132,29 +158,7 @@ module.exports = class CiPlugin extends Plugin {
     }
   }
 
-  emptyCodeCoverage () {
-    incrementMetric('code_coverage.is_empty')
-  }
-
-  markUnskippable (testLevel) {
-    incrementMetric('itr_unskippable', { type: testLevel })
-  }
-
-  markForcedToRun (testLevel) {
-    incrementMetric('itr_forced_run', { type: testLevel })
-  }
-
-  // should this be test level as argument?
-  eventStarted (type) {
-    incrementMetric('event_created', { type, testFramework: this.constructor.id })
-  }
-
-  eventFinished (type) {
-    incrementMetric('event_finished', { type, testFramework: this.constructor.id })
-  }
-
   startTestSpan (testName, testSuite, testSuiteSpan, extraTags = {}) {
-    this.eventStarted('test')
     const childOf = getTestParentSpan(this.tracer)
 
     let testTags = {
@@ -194,6 +198,8 @@ module.exports = class CiPlugin extends Plugin {
         ...suiteTags
       }
     }
+
+    this.telemetry.ciVisEvent(TELEMETRY_EVENT_CREATED, 'test', { hasCodeOwners: !!codeOwners })
 
     const testSpan = this.tracer
       .startSpan(`${this.constructor.id}.test`, {

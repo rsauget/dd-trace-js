@@ -1,7 +1,7 @@
 const { URL, format } = require('url')
 
 const request = require('./request')
-const { incrementMetric } = require('../../ci-visibility/telemetry')
+const { incrementCountMetric, TELEMETRY_EVENTS_ENQUEUED_FOR_SERIALIZATION } = require('../../ci-visibility/telemetry')
 
 function fetchAgentInfo (url, callback) {
   request('', {
@@ -50,7 +50,7 @@ class AgentInfoExporter {
   }
 
   _export (payload, writer = this._writer, timerKey = '_timer') {
-    incrementMetric('events_enqueued_for_serialization', {}, payload.length)
+    incrementCountMetric(TELEMETRY_EVENTS_ENQUEUED_FOR_SERIALIZATION, {}, payload.length)
     writer.append(payload)
 
     const { flushInterval } = this._config

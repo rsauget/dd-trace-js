@@ -1,6 +1,15 @@
 const request = require('../../exporters/common/request')
 const log = require('../../log')
-const { incrementMetric, distributionMetric } = require('../../ci-visibility/telemetry')
+const {
+  incrementCountMetric,
+  distributionMetric,
+  TELEMETRY_ITR_SKIPPABLE_TESTS,
+  TELEMETRY_ITR_SKIPPABLE_TESTS_MS,
+  TELEMETRY_ITR_SKIPPABLE_TESTS_ERRORS,
+  TELEMETRY_ITR_SKIPPABLE_TESTS_RESPONSE_SUITES,
+  TELEMETRY_ITR_SKIPPABLE_TESTS_RESPONSE_TESTS,
+  TELEMETRY_ITR_SKIPPABLE_TESTS_RESPONSE_BYTES
+} = require('../../ci-visibility/telemetry')
 
 function getSkippableSuites ({
   url,
@@ -60,15 +69,15 @@ function getSkippableSuites ({
     }
   })
 
-  incrementMetric('itr_skippable_tests.request')
+  incrementCountMetric(TELEMETRY_ITR_SKIPPABLE_TESTS)
 
-  const startTime = Date.now()
+  const startTime = performance.now()
+
   request(data, options, (err, res) => {
-    const duration = Date.now() - startTime
-    distributionMetric('itr_skippable_tests.request_ms', {}, duration)
+    distributionMetric(TELEMETRY_ITR_SKIPPABLE_TESTS_MS, {}, performance.now() - startTime)
     if (err) {
       // ** TODO ** figure out better error type
-      incrementMetric('itr_skippable_tests.request_errors', { errorType: 'request' })
+      incrementCountMetric(TELEMETRY_ITR_SKIPPABLE_TESTS_ERRORS, { errorType: 'request' })
       done(err)
     } else {
       let skippableSuites = []
@@ -82,8 +91,13 @@ function getSkippableSuites ({
             }
             return { suite, name }
           })
-        incrementMetric(`itr_skippable_tests.response_${testLevel}s`, {}, skippableSuites.length)
-        distributionMetric('itr_skippable_tests.response_bytes', {}, res.length)
+        incrementCountMetric(
+          testLevel === 'test'
+            ? TELEMETRY_ITR_SKIPPABLE_TESTS_RESPONSE_TESTS : TELEMETRY_ITR_SKIPPABLE_TESTS_RESPONSE_SUITES,
+          {},
+          skippableSuites.length
+        )
+        distributionMetric(TELEMETRY_ITR_SKIPPABLE_TESTS_RESPONSE_BYTES, {}, res.length)
         log.debug(() => `Number of received skippable ${testLevel}s: ${skippableSuites.length}`)
         done(null, skippableSuites)
       } catch (err) {

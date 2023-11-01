@@ -15,7 +15,15 @@ const {
   unshallowRepository
 } = require('../../../plugins/util/git')
 
-const { incrementMetric, distributionMetric } = require('../../../ci-visibility/telemetry')
+const {
+  incrementCountMetric,
+  distributionMetric,
+  TELEMETRY_GIT_REQUESTS_SEARCH_COMMITS,
+  TELEMETRY_GIT_REQUESTS_SEARCH_COMMITS_MS,
+  TELEMETRY_GIT_REQUESTS_SEARCH_COMMITS_ERRORS,
+  TELEMETRY_GIT_REQUESTS_OBJECT_PACKFILES_NUM,
+  TELEMETRY_GIT_REQUESTS_OBJECT_PACKFILES
+} = require('../../../ci-visibility/telemetry')
 
 const isValidSha1 = (sha) => /^[0-9a-f]{40}$/.test(sha)
 const isValidSha256 = (sha) => /^[0-9a-f]{64}$/.test(sha)
@@ -49,12 +57,7 @@ function getCommonRequestOptions (url) {
  * This response is used to know which commits can be ignored from there on
  */
 function getCommitsToExclude ({ url, isEvpProxy, repositoryUrl }, callback) {
-  let startTime, duration
-
-  startTime = Date.now()
   const latestCommits = getLatestCommits()
-  duration = Date.now() - startTime
-  distributionMetric('git.command_ms', { command: 'get_local_commits' }, duration)
 
   log.debug(`There were ${latestCommits.length} commits since last month.`)
 
@@ -85,15 +88,13 @@ function getCommitsToExclude ({ url, isEvpProxy, repositoryUrl }, callback) {
     }))
   })
 
-  incrementMetric('git_requests.search_commits')
-
-  startTime = Date.now()
+  incrementCountMetric(TELEMETRY_GIT_REQUESTS_SEARCH_COMMITS)
+  const startTime = performance.now()
   request(localCommitData, options, (err, response) => {
-    duration = Date.now() - startTime
-    distributionMetric('git_requests.search_commits_ms', {}, duration)
+    distributionMetric(TELEMETRY_GIT_REQUESTS_SEARCH_COMMITS_MS, {}, performance.now() - startTime)
     if (err) {
       // ** TODO ** figure out better error type
-      incrementMetric('git_requests.search_commits_errors', { errorType: 'request' })
+      incrementCountMetric(TELEMETRY_GIT_REQUESTS_SEARCH_COMMITS_ERRORS, { errorType: 'network' })
       const error = new Error(`Error fetching commits to exclude: ${err.message}`)
       return callback(error)
     }
@@ -101,6 +102,8 @@ function getCommitsToExclude ({ url, isEvpProxy, repositoryUrl }, callback) {
     try {
       commitsToExclude = validateCommits(JSON.parse(response).data)
     } catch (e) {
+      // ** TODO ** figure out better error type
+      incrementCountMetric(TELEMETRY_GIT_REQUESTS_SEARCH_COMMITS_ERRORS, { errorType: 'network' })
       return callback(new Error(`Can't parse commits to exclude response: ${e.message}`))
     }
     callback(null, commitsToExclude, latestCommits)
@@ -155,16 +158,15 @@ function uploadPackFile ({ url, isEvpProxy, packFileToUpload, repositoryUrl, hea
     delete options.headers['dd-api-key']
   }
 
-  incrementMetric('git_requests.objects_pack')
+  incrementCountMetric(TELEMETRY_GIT_REQUESTS_OBJECT_PACKFILES)
 
-  const startTime = Date.now()
+  const startTime = performance.now()
 
   request(form, options, (err, _, statusCode) => {
-    const duration = Date.now() - startTime
-    distributionMetric('git_requests.objects_pack_ms', {}, duration)
+    distributionMetric(TELEMETRY_GIT_REQUESTS_SEARCH_COMMITS_MS, {}, performance.now() - startTime)
     if (err) {
       // ** TODO ** figure out a proper error type
-      incrementMetric('git_requests.objects_pack_errors', { errorType: 'request' })
+      incrementCountMetric(TELEMETRY_GIT_REQUESTS_SEARCH_COMMITS_ERRORS, { errorType: 'request' })
       const error = new Error(`Could not upload packfiles: status code ${statusCode}: ${err.message}`)
       return callback(error)
     }
@@ -177,12 +179,8 @@ function uploadPackFile ({ url, isEvpProxy, packFileToUpload, repositoryUrl, hea
 */
 function sendGitMetadata (url, isEvpProxy, configRepositoryUrl, callback) {
   let repositoryUrl = configRepositoryUrl
-  let startTime, duration
   if (!repositoryUrl) {
-    startTime = Date.now()
     repositoryUrl = getRepositoryUrl()
-    duration = Date.now() - startTime
-    distributionMetric('git.command_ms', { command: 'get_repository' }, duration)
   }
 
   log.debug(`Uploading git history for repository ${repositoryUrl}`)
@@ -191,17 +189,9 @@ function sendGitMetadata (url, isEvpProxy, configRepositoryUrl, callback) {
     return callback(new Error('Repository URL is empty'))
   }
 
-  startTime = Date.now()
-  const isShallow = isShallowRepository()
-  duration = Date.now() - startTime
-  distributionMetric('git.command_ms', { command: 'check_shallow' }, duration)
-
-  if (isShallow) {
+  if (isShallowRepository()) {
     log.debug('It is shallow clone, unshallowing...')
-    startTime = Date.now()
     unshallowRepository()
-    duration = Date.now() - startTime
-    distributionMetric('git.command_ms', { command: 'unshallow' }, duration)
   }
 
   getCommitsToExclude({ url, repositoryUrl, isEvpProxy }, (err, commitsToExclude, latestCommits) => {
@@ -213,10 +203,7 @@ function sendGitMetadata (url, isEvpProxy, configRepositoryUrl, callback) {
     const commitsToInclude = latestCommits.filter((commit) => !commitsToExclude.includes(commit))
     log.debug(`There are ${commitsToInclude.length} commits to include.`)
 
-    startTime = Date.now()
     const commitsToUpload = getCommitsToUpload(commitsToExclude, commitsToInclude)
-    duration = Date.now() - startTime
-    distributionMetric('git.command_ms', { command: 'get_objects' }, duration)
 
     if (!commitsToUpload.length) {
       log.debug('No commits to upload')
@@ -224,10 +211,7 @@ function sendGitMetadata (url, isEvpProxy, configRepositoryUrl, callback) {
     }
     log.debug(`There are ${commitsToUpload.length} commits to upload`)
 
-    startTime = Date.now()
     const packFilesToUpload = generatePackFilesForCommits(commitsToUpload)
-    duration = Date.now() - startTime
-    distributionMetric('git.command_ms', { command: 'pack_objects' }, duration)
 
     log.debug(`Uploading ${packFilesToUpload.length} packfiles.`)
 
@@ -235,7 +219,7 @@ function sendGitMetadata (url, isEvpProxy, configRepositoryUrl, callback) {
       return callback(new Error('Failed to generate packfiles'))
     }
 
-    distributionMetric('git_requests.objects_pack_files', {}, packFilesToUpload.length)
+    distributionMetric(TELEMETRY_GIT_REQUESTS_OBJECT_PACKFILES_NUM, {}, packFilesToUpload.length)
 
     let packFileIndex = 0
     // This uploads packfiles sequentially

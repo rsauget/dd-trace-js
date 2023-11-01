@@ -5,7 +5,14 @@ const log = require('../../../log')
 
 const { AgentlessCiVisibilityEncoder } = require('../../../encode/agentless-ci-visibility')
 const BaseWriter = require('../../../exporters/common/writer')
-const { incrementMetric, distributionMetric } = require('../../../ci-visibility/telemetry')
+const {
+  incrementCountMetric,
+  distributionMetric,
+  TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS,
+  TELEMETRY_ENDPOINT_PAYLOAD_BYTES,
+  TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS_MS,
+  TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS_ERRORS
+} = require('../../../ci-visibility/telemetry')
 
 class Writer extends BaseWriter {
   constructor ({ url, tags, evpProxyPrefix = '' }) {
@@ -36,16 +43,23 @@ class Writer extends BaseWriter {
 
     log.debug(() => `Request to the intake: ${safeJSONStringify(options)}`)
 
-    const startTime = Date.now()
+    const startRequestTime = performance.now()
 
-    incrementMetric('endpoint_payload.requests', { endpoint: 'test_cycle' })
-    distributionMetric('endpoint_payload.bytes', { endpoint: 'test_cycle' }, data.length)
+    incrementCountMetric(TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS, { endpoint: 'test_cycle' })
+    distributionMetric(TELEMETRY_ENDPOINT_PAYLOAD_BYTES, { endpoint: 'test_cycle' }, data.length)
+
     request(data, options, (err, res) => {
-      const duration = Date.now() - startTime
-      distributionMetric('endpoint_payload.requests_ms', { endpoint: 'test_cycle' }, duration)
+      distributionMetric(
+        TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS_MS,
+        { endpoint: 'test_cycle' },
+        performance.now() - startRequestTime
+      )
       if (err) {
         // **TODO** EXTRACT TYPE OF ERROR IF WE CAN
-        incrementMetric('endpoint_payload.requests_errors', { endpoint: 'test_cycle', errorType: 'timeout' })
+        incrementCountMetric(
+          TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS_ERRORS,
+          { endpoint: 'test_cycle', errorType: 'timeout' }
+        )
         log.error(err)
         done()
         return
