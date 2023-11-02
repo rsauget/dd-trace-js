@@ -8,7 +8,8 @@ const {
   TELEMETRY_ITR_SKIPPABLE_TESTS_ERRORS,
   TELEMETRY_ITR_SKIPPABLE_TESTS_RESPONSE_SUITES,
   TELEMETRY_ITR_SKIPPABLE_TESTS_RESPONSE_TESTS,
-  TELEMETRY_ITR_SKIPPABLE_TESTS_RESPONSE_BYTES
+  TELEMETRY_ITR_SKIPPABLE_TESTS_RESPONSE_BYTES,
+  getErrorTypeFromStatusCode
 } = require('../../ci-visibility/telemetry')
 
 function getSkippableSuites ({
@@ -37,7 +38,7 @@ function getSkippableSuites ({
   }
 
   if (isEvpProxy) {
-    options.path = '/evp_proxy/v2/api/v2/ci/tests/skippable'
+    options.path = '/evp_proxy/v2/api/v2/ci/tests/skisppable'
     options.headers['X-Datadog-EVP-Subdomain'] = 'api'
   } else {
     const apiKey = process.env.DATADOG_API_KEY || process.env.DD_API_KEY
@@ -73,11 +74,11 @@ function getSkippableSuites ({
 
   const startTime = performance.now()
 
-  request(data, options, (err, res) => {
+  request(data, options, (err, res, statusCode) => {
     distributionMetric(TELEMETRY_ITR_SKIPPABLE_TESTS_MS, {}, performance.now() - startTime)
     if (err) {
-      // ** TODO ** figure out better error type
-      incrementCountMetric(TELEMETRY_ITR_SKIPPABLE_TESTS_ERRORS, { errorType: 'request' })
+      const errorType = getErrorTypeFromStatusCode(statusCode)
+      incrementCountMetric(TELEMETRY_ITR_SKIPPABLE_TESTS_ERRORS, { errorType })
       done(err)
     } else {
       let skippableSuites = []

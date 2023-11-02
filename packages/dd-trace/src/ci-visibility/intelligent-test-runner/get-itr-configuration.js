@@ -7,7 +7,8 @@ const {
   TELEMETRY_GIT_REQUESTS_SETTINGS,
   TELEMETRY_GIT_REQUESTS_SETTINGS_MS,
   TELEMETRY_GIT_REQUESTS_SETTINGS_ERRORS,
-  TELEMETRY_GIT_REQUESTS_SETTINGS_RESPONSE
+  TELEMETRY_GIT_REQUESTS_SETTINGS_RESPONSE,
+  getErrorTypeFromStatusCode
 } = require('../../ci-visibility/telemetry')
 
 function getItrConfiguration ({
@@ -71,11 +72,11 @@ function getItrConfiguration ({
   incrementCountMetric(TELEMETRY_GIT_REQUESTS_SETTINGS)
 
   const startTime = performance.now()
-  request(data, options, (err, res) => {
+  request(data, options, (err, res, statusCode) => {
     distributionMetric(TELEMETRY_GIT_REQUESTS_SETTINGS_MS, {}, performance.now() - startTime)
     if (err) {
-      // ** TODO ** figure out better error type
-      incrementCountMetric(TELEMETRY_GIT_REQUESTS_SETTINGS_ERRORS, { errorType: 'request' })
+      const errorType = getErrorTypeFromStatusCode(statusCode)
+      incrementCountMetric(TELEMETRY_GIT_REQUESTS_SETTINGS_ERRORS, { errorType })
       done(err)
     } else {
       try {
