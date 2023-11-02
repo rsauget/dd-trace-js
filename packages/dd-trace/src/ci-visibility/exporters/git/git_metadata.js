@@ -24,7 +24,8 @@ const {
   TELEMETRY_GIT_REQUESTS_OBJECT_PACKFILES_NUM,
   TELEMETRY_GIT_REQUESTS_OBJECT_PACKFILES,
   TELEMETRY_GIT_REQUESTS_OBJECT_PACKFILES_MS,
-  TELEMETRY_GIT_REQUESTS_OBJECT_PACKFILES_ERRORS
+  TELEMETRY_GIT_REQUESTS_OBJECT_PACKFILES_ERRORS,
+  getErrorTypeFromStatusCode
 } = require('../../../ci-visibility/telemetry')
 
 const isValidSha1 = (sha) => /^[0-9a-f]{40}$/.test(sha)
@@ -95,8 +96,8 @@ function getCommitsToExclude ({ url, isEvpProxy, repositoryUrl }, callback) {
   request(localCommitData, options, (err, response) => {
     distributionMetric(TELEMETRY_GIT_REQUESTS_SEARCH_COMMITS_MS, {}, performance.now() - startTime)
     if (err) {
-      // ** TODO ** figure out better error type
-      incrementCountMetric(TELEMETRY_GIT_REQUESTS_SEARCH_COMMITS_ERRORS, { errorType: 'network' })
+      const errorType = getErrorTypeFromStatusCode(err.statusCode)
+      incrementCountMetric(TELEMETRY_GIT_REQUESTS_SEARCH_COMMITS_ERRORS, { errorType })
       const error = new Error(`Error fetching commits to exclude: ${err.message}`)
       return callback(error)
     }
@@ -104,7 +105,6 @@ function getCommitsToExclude ({ url, isEvpProxy, repositoryUrl }, callback) {
     try {
       commitsToExclude = validateCommits(JSON.parse(response).data)
     } catch (e) {
-      // ** TODO ** figure out better error type
       incrementCountMetric(TELEMETRY_GIT_REQUESTS_SEARCH_COMMITS_ERRORS, { errorType: 'network' })
       return callback(new Error(`Can't parse commits to exclude response: ${e.message}`))
     }
@@ -167,8 +167,8 @@ function uploadPackFile ({ url, isEvpProxy, packFileToUpload, repositoryUrl, hea
   request(form, options, (err, _, statusCode) => {
     distributionMetric(TELEMETRY_GIT_REQUESTS_OBJECT_PACKFILES_MS, {}, performance.now() - startTime)
     if (err) {
-      // ** TODO ** figure out a proper error type
-      incrementCountMetric(TELEMETRY_GIT_REQUESTS_OBJECT_PACKFILES_ERRORS, { errorType: 'request' })
+      const errorType = getErrorTypeFromStatusCode(err.statusCode)
+      incrementCountMetric(TELEMETRY_GIT_REQUESTS_OBJECT_PACKFILES_ERRORS, { errorType })
       const error = new Error(`Could not upload packfiles: status code ${statusCode}: ${err.message}`)
       return callback(error)
     }

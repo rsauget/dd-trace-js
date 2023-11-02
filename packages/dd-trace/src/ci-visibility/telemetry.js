@@ -44,9 +44,12 @@ const TELEMETRY_ITR_SKIPPED = 'itr_skipped'
 const TELEMETRY_ITR_UNSKIPPABLE = 'itr_unskippable'
 const TELEMETRY_ITR_FORCED_TO_RUN = 'itr_forced_run'
 const TELEMETRY_CODE_COVERAGE_EMPTY = 'code_coverage.is_empty'
+const TELEMETRY_CODE_COVERAGE_NUM_FILES = 'code_coverage.files'
 const TELEMETRY_EVENTS_ENQUEUED_FOR_SERIALIZATION = 'events_enqueued_for_serialization'
+const TELEMETRY_ENDPOINT_PAYLOAD_SERIALIZATION_MS = 'endpoint_payload.events_serialization_ms'
 const TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS = 'endpoint_payload.requests'
 const TELEMETRY_ENDPOINT_PAYLOAD_BYTES = 'endpoint_payload.bytes'
+const TELEMETRY_ENDPOINT_PAYLOAD_EVENTS_COUNT = 'endpoint_payload.events_count'
 const TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS_MS = 'endpoint_payload.requests_ms'
 const TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS_ERRORS = 'endpoint_payload.requests_errors'
 const TELEMETRY_GIT_COMMAND = 'git.command'
@@ -70,6 +73,16 @@ const TELEMETRY_ITR_SKIPPABLE_TESTS_RESPONSE_SUITES = 'itr_skippable_tests.respo
 const TELEMETRY_ITR_SKIPPABLE_TESTS_RESPONSE_TESTS = 'itr_skippable_tests.response_tests'
 const TELEMETRY_ITR_SKIPPABLE_TESTS_RESPONSE_BYTES = 'itr_skippable_tests.response_bytes'
 
+function getErrorTypeFromStatusCode (statusCode) {
+  if (statusCode >= 400 && statusCode < 500) {
+    return 'status_code_4xx_response'
+  }
+  if (statusCode >= 500) {
+    return 'status_code_5xx_response'
+  }
+  return ''
+}
+
 module.exports = {
   incrementCountMetric,
   distributionMetric,
@@ -81,9 +94,12 @@ module.exports = {
   TELEMETRY_ITR_UNSKIPPABLE,
   TELEMETRY_ITR_FORCED_TO_RUN,
   TELEMETRY_CODE_COVERAGE_EMPTY,
+  TELEMETRY_CODE_COVERAGE_NUM_FILES,
   TELEMETRY_EVENTS_ENQUEUED_FOR_SERIALIZATION,
+  TELEMETRY_ENDPOINT_PAYLOAD_SERIALIZATION_MS,
   TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS,
   TELEMETRY_ENDPOINT_PAYLOAD_BYTES,
+  TELEMETRY_ENDPOINT_PAYLOAD_EVENTS_COUNT,
   TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS_MS,
   TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS_ERRORS,
   TELEMETRY_GIT_COMMAND,
@@ -105,5 +121,6 @@ module.exports = {
   TELEMETRY_ITR_SKIPPABLE_TESTS_ERRORS,
   TELEMETRY_ITR_SKIPPABLE_TESTS_RESPONSE_SUITES,
   TELEMETRY_ITR_SKIPPABLE_TESTS_RESPONSE_TESTS,
-  TELEMETRY_ITR_SKIPPABLE_TESTS_RESPONSE_BYTES
+  TELEMETRY_ITR_SKIPPABLE_TESTS_RESPONSE_BYTES,
+  getErrorTypeFromStatusCode
 }

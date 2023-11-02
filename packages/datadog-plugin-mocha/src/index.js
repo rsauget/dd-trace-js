@@ -24,7 +24,8 @@ const {
   TELEMETRY_CODE_COVERAGE_FINISHED,
   TELEMETRY_ITR_FORCED_TO_RUN,
   TELEMETRY_CODE_COVERAGE_EMPTY,
-  TELEMETRY_ITR_UNSKIPPABLE
+  TELEMETRY_ITR_UNSKIPPABLE,
+  TELEMETRY_CODE_COVERAGE_NUM_FILES
 } = require('../../dd-trace/src/ci-visibility/telemetry')
 
 class MochaPlugin extends CiPlugin {
@@ -62,6 +63,7 @@ class MochaPlugin extends CiPlugin {
 
       this.tracer._exporter.exportCoverage(formattedCoverage)
       this.telemetry.ciVisEvent(TELEMETRY_CODE_COVERAGE_FINISHED, 'suite', { library: 'istanbul' })
+      this.telemetry.distribution(TELEMETRY_CODE_COVERAGE_NUM_FILES, {}, relativeCoverageFiles.length)
     })
 
     this.addSub('ci:mocha:test-suite:start', ({ testSuite, isUnskippable, isForcedToRun }) => {

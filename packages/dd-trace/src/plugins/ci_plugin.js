@@ -22,6 +22,7 @@ const { COMPONENT } = require('../constants')
 const log = require('../log')
 const {
   incrementCountMetric,
+  distributionMetric,
   TELEMETRY_EVENT_CREATED,
   TELEMETRY_ITR_SKIPPED
 } = require('../ci-visibility/telemetry')
@@ -121,8 +122,11 @@ module.exports = class CiPlugin extends Plugin {
           ...tags
         })
       },
-      count: function (name, tags = {}, value = 1) {
+      count: function (name, tags, value = 1) {
         incrementCountMetric(name, tags, value)
+      },
+      distribution: function (name, tags, measure) {
+        distributionMetric(name, tags, measure)
       }
     }
   }
