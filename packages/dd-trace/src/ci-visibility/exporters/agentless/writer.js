@@ -11,7 +11,8 @@ const {
   TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS,
   TELEMETRY_ENDPOINT_PAYLOAD_BYTES,
   TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS_MS,
-  TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS_ERRORS
+  TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS_ERRORS,
+  getErrorTypeFromStatusCode
 } = require('../../../ci-visibility/telemetry')
 
 class Writer extends BaseWriter {
@@ -48,17 +49,17 @@ class Writer extends BaseWriter {
     incrementCountMetric(TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS, { endpoint: 'test_cycle' })
     distributionMetric(TELEMETRY_ENDPOINT_PAYLOAD_BYTES, { endpoint: 'test_cycle' }, data.length)
 
-    request(data, options, (err, res) => {
+    request(data, options, (err, res, statusCode) => {
       distributionMetric(
         TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS_MS,
         { endpoint: 'test_cycle' },
         performance.now() - startRequestTime
       )
       if (err) {
-        // **TODO** EXTRACT TYPE OF ERROR IF WE CAN
+        const errorType = getErrorTypeFromStatusCode(statusCode)
         incrementCountMetric(
           TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS_ERRORS,
-          { endpoint: 'test_cycle', errorType: 'timeout' }
+          { endpoint: 'test_cycle', errorType }
         )
         log.error(err)
         done()

@@ -81,7 +81,7 @@ function getErrorTypeFromStatusCode (statusCode) {
   if (statusCode >= 500) {
     return 'status_code_5xx_response'
   }
-  return ''
+  return 'network'
 }
 
 module.exports = {
