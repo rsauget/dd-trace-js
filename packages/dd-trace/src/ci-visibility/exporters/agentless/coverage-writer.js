@@ -5,6 +5,14 @@ const { safeJSONStringify } = require('../../../exporters/common/util')
 
 const { CoverageCIVisibilityEncoder } = require('../../../encode/coverage-ci-visibility')
 const BaseWriter = require('../../../exporters/common/writer')
+const {
+  incrementCountMetric,
+  distributionMetric,
+  TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS,
+  TELEMETRY_ENDPOINT_PAYLOAD_BYTES,
+  TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS_MS,
+  TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS_ERRORS
+} = require('../../../ci-visibility/telemetry')
 
 class Writer extends BaseWriter {
   constructor ({ url, evpProxyPrefix = '' }) {
@@ -34,8 +42,23 @@ class Writer extends BaseWriter {
 
     log.debug(() => `Request to the intake: ${safeJSONStringify(options)}`)
 
+    const startRequestTime = performance.now()
+
+    incrementCountMetric(TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS, { endpoint: 'code_coverage' })
+    distributionMetric(TELEMETRY_ENDPOINT_PAYLOAD_BYTES, { endpoint: 'code_coverage' }, form.size())
+
     request(form, options, (err, res) => {
+      distributionMetric(
+        TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS_MS,
+        { endpoint: 'code_coverage' },
+        performance.now() - startRequestTime
+      )
       if (err) {
+        // **TODO** EXTRACT TYPE OF ERROR IF WE CAN
+        incrementCountMetric(
+          TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS_ERRORS,
+          { endpoint: 'code_coverage', errorType: 'timeout' }
+        )
         log.error(err)
         done()
         return

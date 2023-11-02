@@ -20,6 +20,8 @@ const { COMPONENT } = require('../../dd-trace/src/constants')
 const {
   TELEMETRY_EVENT_CREATED,
   TELEMETRY_EVENT_FINISHED,
+  TELEMETRY_CODE_COVERAGE_STARTED,
+  TELEMETRY_CODE_COVERAGE_FINISHED,
   TELEMETRY_ITR_FORCED_TO_RUN,
   TELEMETRY_CODE_COVERAGE_EMPTY,
   TELEMETRY_ITR_UNSKIPPABLE
@@ -59,6 +61,7 @@ class MochaPlugin extends CiPlugin {
       }
 
       this.tracer._exporter.exportCoverage(formattedCoverage)
+      this.telemetry.ciVisEvent(TELEMETRY_CODE_COVERAGE_FINISHED, 'suite', { library: 'istanbul' })
     })
 
     this.addSub('ci:mocha:test-suite:start', ({ testSuite, isUnskippable, isForcedToRun }) => {
@@ -87,6 +90,9 @@ class MochaPlugin extends CiPlugin {
         }
       })
       this.telemetry.ciVisEvent(TELEMETRY_EVENT_CREATED, 'suite')
+      if (this.itrConfig?.isCodeCoverageEnabled) {
+        this.telemetry.ciVisEvent(TELEMETRY_CODE_COVERAGE_STARTED, 'suite', { library: 'istanbul' })
+      }
       this.enter(testSuiteSpan, store)
       this._testSuites.set(testSuite, testSuiteSpan)
     })

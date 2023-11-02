@@ -73,6 +73,7 @@ class Tracer extends NoopProxy {
       }
 
       if (config.tracing) {
+        // ** TODO ** make sure this is disabled for agentless
         if (!config.isCiVisibility) {
           // TODO: This should probably not require tracing to be enabled.
           telemetry.start(config, this._pluginManager)

@@ -2,39 +2,29 @@ const telemetryMetrics = require('../telemetry/metrics')
 
 const ciVisibilityMetrics = telemetryMetrics.manager.namespace('civisibility')
 
-function remoteEmptyTags (tags) {
-  return Object.keys(tags).reduce((acc, tag) => {
-    if (tags[tag] !== undefined && tags[tag] !== null) {
-      acc[tag] = tags[tag]
-    }
-    return acc
-  }, {})
+const formattedTags = {
+  testLevel: 'event_type',
+  testFramework: 'test_framework',
+  errorType: 'error_type',
+  exitCode: 'exit_code',
+  isCodeCoverageEnabled: 'coverage_enabled',
+  isSuitesSkippingEnabled: 'itrskip_enabled',
+  hasCodeOwners: 'has_code_owners',
+  isUnsupportedCIProvider: 'is_unsupported_ci'
 }
 
-function formatMetricTags ({
-  testLevel,
-  testFramework,
-  errorType,
-  endpoint,
-  command,
-  isCodeCoverageEnabled,
-  isSuitesSkippingEnabled,
-  hasCodeOwners,
-  isUnsupportedCIProvider,
-  exitCode
-}) {
-  return remoteEmptyTags({
-    event_type: testLevel,
-    test_framework: testFramework,
-    error_type: errorType,
-    endpoint,
-    command,
-    coverage_enabled: isCodeCoverageEnabled,
-    itrskip_enabled: isSuitesSkippingEnabled,
-    has_code_owners: hasCodeOwners,
-    is_unsupported_ci: isUnsupportedCIProvider,
-    exit_code: exitCode
-  })
+// Transform tags dictionary to array of strings.
+// If tag value is true, then only tag key is added to the array.
+function formatMetricTags (tagsDictionary) {
+  return Object.keys(tagsDictionary).reduce((acc, tagKey) => {
+    const formattedTagKey = formattedTags[tagKey] || tagKey
+    if (tagsDictionary[tagKey] === true) {
+      acc.push(formattedTagKey)
+    } else if (tagsDictionary[tagKey] !== undefined && tagsDictionary[tagKey] !== null) {
+      acc.push(`${formattedTagKey}:${tagsDictionary[tagKey]}`)
+    }
+    return acc
+  }, [])
 }
 
 function incrementCountMetric (name, tags = {}, value = 1) {
@@ -48,6 +38,8 @@ function distributionMetric (name, tags, measure) {
 // CI Visibility telemetry events
 const TELEMETRY_EVENT_CREATED = 'event_created'
 const TELEMETRY_EVENT_FINISHED = 'event_finished'
+const TELEMETRY_CODE_COVERAGE_STARTED = 'code_coverage_started'
+const TELEMETRY_CODE_COVERAGE_FINISHED = 'code_coverage_finished'
 const TELEMETRY_ITR_SKIPPED = 'itr_skipped'
 const TELEMETRY_ITR_UNSKIPPABLE = 'itr_unskippable'
 const TELEMETRY_ITR_FORCED_TO_RUN = 'itr_forced_run'
@@ -83,6 +75,8 @@ module.exports = {
   distributionMetric,
   TELEMETRY_EVENT_CREATED,
   TELEMETRY_EVENT_FINISHED,
+  TELEMETRY_CODE_COVERAGE_STARTED,
+  TELEMETRY_CODE_COVERAGE_FINISHED,
   TELEMETRY_ITR_SKIPPED,
   TELEMETRY_ITR_UNSKIPPABLE,
   TELEMETRY_ITR_FORCED_TO_RUN,
