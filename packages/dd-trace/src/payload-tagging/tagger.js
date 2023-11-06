@@ -22,7 +22,7 @@ function tagsFromObject (object, filter, maxDepth, prefix) {
   let tagCount = 0
   const result = {}
 
-  function tagRec (prefix, object, filterObj = filter.filterObj, depth = 0, indent) {
+  function tagRec (prefix, object, childHolder = filter._root, depth = 0) {
     // Off by one: _dd.payload_tags_trimmed counts as 1 tag
     if (tagCount >= PAYLOAD_TAGGING_MAX_TAGS - 1) {
       result['_dd.payload_tags_trimmed'] = true
@@ -61,8 +61,8 @@ function tagsFromObject (object, filter, maxDepth, prefix) {
 
     if (typeof object === 'object') {
       for (const [key, value] of Object.entries(object)) {
-        if (!filter.canTag(key, filterObj)) continue
-        const nextFilter = filterObj === undefined ? filterObj : filterObj[key]
+        if (!childHolder.canTag(key)) continue
+        const nextFilter = childHolder.next(key)
         tagRec(`${prefix}.${escapeKey(key)}`, value, nextFilter, depth)
       }
     }

@@ -13,7 +13,7 @@ const { GIT_REPOSITORY_URL, GIT_COMMIT_SHA } = require('./plugins/util/tags')
 const { getGitMetadataFromGitProperties, removeUserSensitiveInfo } = require('./git_properties')
 const { updateConfig } = require('./telemetry')
 const { getIsGCPFunction, getIsAzureFunctionConsumptionPlan } = require('./serverless')
-const { filterFromString } = require('./payload-tagging/filter')
+const { Filter } = require('./payload-tagging/filter')
 
 const fromEntries = Object.fromEntries || (entries =>
   entries.reduce((obj, [k, v]) => Object.assign(obj, { [k]: v }), {}))
@@ -602,7 +602,7 @@ ken|consumer_?(?:id|key|secret)|sign(?:ed|ature)?|auth(?:entication|orization)?)
       sourceMap: !isFalse(DD_PROFILING_SOURCE_MAP),
       exporters: DD_PROFILING_EXPORTERS
     }
-    this.httpPayloadTagging = filterFromString(DD_TRACE_PAYLOAD_TAGS)
+    this.httpPayloadTagging = new Filter(DD_TRACE_PAYLOAD_TAGS)
     this.httpPayloadMaxDepth = DD_TRACE_PAYLOAD_MAX_DEPTH
     this.spanAttributeSchema = DD_TRACE_SPAN_ATTRIBUTE_SCHEMA
     this.spanComputePeerService = DD_TRACE_PEER_SERVICE_DEFAULTS_ENABLED
