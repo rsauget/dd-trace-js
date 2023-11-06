@@ -12,6 +12,7 @@ const {
   TELEMETRY_ENDPOINT_PAYLOAD_BYTES,
   TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS_MS,
   TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS_ERRORS,
+  TELEMETRY_ENDPOINT_PAYLOAD_DROPPED,
   getErrorTypeFromStatusCode
 } = require('../../../ci-visibility/telemetry')
 
@@ -59,6 +60,10 @@ class Writer extends BaseWriter {
         incrementCountMetric(
           TELEMETRY_ENDPOINT_PAYLOAD_REQUESTS_ERRORS,
           { endpoint: 'code_coverage', errorType }
+        )
+        incrementCountMetric(
+          TELEMETRY_ENDPOINT_PAYLOAD_DROPPED,
+          { endpoint: 'code_coverage' }
         )
         log.error(err)
         done()

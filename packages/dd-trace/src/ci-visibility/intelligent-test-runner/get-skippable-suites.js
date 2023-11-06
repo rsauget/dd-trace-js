@@ -38,7 +38,7 @@ function getSkippableSuites ({
   }
 
   if (isEvpProxy) {
-    options.path = '/evp_proxy/v2/api/v2/ci/tests/skisppable'
+    options.path = '/evp_proxy/v2/api/v2/ci/tests/skippable'
     options.headers['X-Datadog-EVP-Subdomain'] = 'api'
   } else {
     const apiKey = process.env.DATADOG_API_KEY || process.env.DD_API_KEY
