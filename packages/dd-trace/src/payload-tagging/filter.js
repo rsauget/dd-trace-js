@@ -133,6 +133,23 @@ class FilterItem {
   next (key) {
     return this._children.get(key) || new AlwaysFilter(this._isExcluding)
   }
+
+  toString () {
+    return JSON.stringify({
+      name: this.name,
+      isExcluding: this._isExcluding,
+      children: Array.from(this._children.keys())
+    })
+  }
+
+  static showTree (node, indent = 0) {
+    const indentStr = ' '.repeat(indent)
+    console.log(`${indentStr}${node}`)
+    if (node instanceof AlwaysFilter || node === undefined) return
+    for (const child of node._children.values()) {
+      this.showTree(child, indent + 2)
+    }
+  }
 }
 
 /**
@@ -148,6 +165,8 @@ class AlwaysFilter {
   canTag () { return this._canTag }
 
   next () { return this }
+
+  toString () { return JSON.stringify({ CanTag: this._canTag }) }
 }
 
 module.exports = { Filter, FilterItem }
