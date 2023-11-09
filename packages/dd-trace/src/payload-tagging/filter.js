@@ -12,6 +12,8 @@ class Filter {
     this.ingestRules(rules)
   }
 
+  get root () { return this._root }
+
   parseFilterString (filterString) {
     if (filterString.startsWith('*')) {
       // This also covers an input of `*`

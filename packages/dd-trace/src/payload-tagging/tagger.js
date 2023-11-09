@@ -22,7 +22,7 @@ function tagsFromObject (object, filter, maxDepth, prefix) {
   let tagCount = 0
   const result = {}
 
-  function tagRec (prefix, object, childHolder = filter._root, depth = 0) {
+  function tagRec (prefix, object, childHolder = filter.root, depth = 0) {
     // Off by one: _dd.payload_tags_trimmed counts as 1 tag
     if (tagCount >= PAYLOAD_TAGGING_MAX_TAGS - 1) {
       result['_dd.payload_tags_trimmed'] = true
@@ -38,9 +38,6 @@ function tagsFromObject (object, filter, maxDepth, prefix) {
     }
 
     if (object === null) {
-      // TODO check which tracers strip null/None/... values
-      // Probably all of them
-      // Limitation to document for users
       result[prefix] = 'null'
       tagCount += 1
       return
@@ -62,8 +59,7 @@ function tagsFromObject (object, filter, maxDepth, prefix) {
     if (typeof object === 'object') {
       for (const [key, value] of Object.entries(object)) {
         if (!childHolder.canTag(key)) continue
-        const nextFilter = childHolder.next(key)
-        tagRec(`${prefix}.${escapeKey(key)}`, value, nextFilter, depth)
+        tagRec(`${prefix}.${escapeKey(key)}`, value, childHolder.next(key), depth)
       }
     }
   }
