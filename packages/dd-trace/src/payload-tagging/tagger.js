@@ -22,7 +22,7 @@ function tagsFromObject (object, filter, maxDepth, prefix) {
   let tagCount = 0
   const result = {}
 
-  function tagRec (prefix, object, childHolder = filter.root, depth = 0) {
+  function tagRec (prefix, object, maskPointer = filter.root, depth = 0) {
     // Off by one: _dd.payload_tags_trimmed counts as 1 tag
     if (tagCount >= PAYLOAD_TAGGING_MAX_TAGS - 1) {
       result['_dd.payload_tags_trimmed'] = true
@@ -58,8 +58,9 @@ function tagsFromObject (object, filter, maxDepth, prefix) {
 
     if (typeof object === 'object') {
       for (const [key, value] of Object.entries(object)) {
-        if (!childHolder.canTag(key)) continue
-        tagRec(`${prefix}.${escapeKey(key)}`, value, childHolder.next(key), depth)
+        // console.log(`can tag ${key}: ${maskPointer.canTag(key)}`)
+        if (!maskPointer.canTag(key)) continue
+        tagRec(`${prefix}.${escapeKey(key)}`, value, maskPointer.next(key), depth)
       }
     }
   }
@@ -95,6 +96,7 @@ function getBodyResponseTags (jsonString, contentType, opts) {
 }
 
 module.exports = {
+  tagsFromObject,
   getBodyTags,
   getBodyRequestTags,
   getBodyResponseTags,

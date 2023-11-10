@@ -1,3 +1,153 @@
+class Mask {
+  constructor (filterString) {
+    const rules = this.parseRules(filterString)
+    this._isGlob = filterString.startsWith('*')
+    this._root = new MaskNode(
+      'root',
+      this,
+      {
+        isDeselect: false, isGlob: filterString.startsWith('*')
+      }
+    )
+    for (const rule of rules) {
+      const chain = this.makeChain(rule)
+      this._root.addChild(chain)
+    }
+  }
+
+  get root () { return this._root }
+
+  splitUnescape (input, separator) {
+    const escapedSep = `\\${separator}`
+    const rules = []
+    for (let i = 0; i < input.length;) {
+      let nextSep = input.indexOf(separator, i)
+      while (nextSep >= 0 && input[nextSep - 1] === '\\') {
+        nextSep = input.indexOf(separator, nextSep + 1)
+      }
+      if (nextSep === -1) {
+        rules.push(input.slice(i).replaceAll(escapedSep, separator))
+        break
+      } else {
+        rules.push(input.slice(i, nextSep).replaceAll(escapedSep, separator))
+        i = nextSep + 1
+      }
+    }
+    return rules
+  }
+
+  parseRules (filterString) {
+    //    if (filterString.startsWith('*')) {
+    //      filterString = filterString.slice(2)
+    //    }
+    return this.splitUnescape(filterString, ',')
+  }
+
+  parseRule (ruleString) {
+    return this.splitUnescape(ruleString, '.')
+  }
+
+  makeChain (rule) {
+    const isDeselect = rule.startsWith('-')
+    if (isDeselect) {
+      rule = rule.slice(1)
+    }
+    const keys = this.parseRule(rule)
+    const root = new MaskNode(keys[0], this, { isDeselect })
+    let head = root
+    for (const key of keys.slice(1)) {
+      const child = new MaskNode(key, this, { isDeselect, children: new Map() })
+      head._children.set(key, child)
+      head = child
+    }
+    return root
+  }
+
+  showTree () { return this._root.showTree() }
+}
+
+class MaskNode {
+  constructor (key, mask, { isDeselect, children }) {
+    this.name = key
+    this._mask = mask
+    this._isDeselect = isDeselect
+    this._children = children || new Map()
+  }
+
+  get isLeaf () { return this._children.size === 0 }
+
+  get childIsGlob () { return this._children.size === 1 && this._children.get('*') !== undefined }
+
+  addChild (node) {
+    if (node.isLeaf) {
+      this._children.set(node.name, node)
+      return
+    }
+
+    const myChild = this._children.get(node.name)
+    if (myChild === undefined) {
+      this._children.set(node.name, node)
+    } else {
+      for (const child of node._children.values()) {
+        myChild.addChild(child)
+      }
+    }
+  }
+
+  next (key) {
+    const nextNode = this._children.get(key)
+    if (nextNode === undefined) {
+      if (this.childIsGlob) return this._children.get('*')
+      return new EndNode(!this._isDeselect, this._mask)
+    }
+    return nextNode
+  }
+
+  canTag (key) {
+    if (this.childIsGlob) { return true }
+    if (this.isLeaf) { return !this._isDeselect }
+    const node = this._children.get(key)
+    console.log(`child node ${node} for ${key} from ${this}`)
+    if (node === undefined) {
+      console.log(`undef for ${key} ${this._isDeselect}`)
+      return this._isDeselect
+    }
+    if (node.isLeaf) return !node._isDeselect
+    return true
+  }
+
+  toString () {
+    return JSON.stringify({
+      name: this.name,
+      isDeselect: this._isDeselect,
+      children: Array.from(this._children.keys())
+    })
+  }
+
+  showTree (indent = 0) {
+    const indentStr = ' '.repeat(indent)
+    console.log(`${indentStr}${this}`)
+    for (const child of this._children.values()) {
+      child.showTree(indent + 2)
+    }
+  }
+}
+
+class EndNode {
+  constructor (canTag, mask) {
+    this._canTag = canTag
+    this._mask = mask
+  }
+
+  canTag () { return this._canTag }
+
+  next () { return this }
+
+  toString () { return `EndNode {canTag: ${this._canTag}}` }
+
+  showTree (indent = 0) { return `${' '.repeat(indent)}${this.toString()}` }
+}
+
 /**
  * A filter for the Payload Tagging DSL.
  *
@@ -5,7 +155,7 @@
  */
 class Filter {
   constructor (filterString) {
-    const rules = this.parseFilterString(filterString)
+    const rules = this.parseRules(filterString)
     // With a glob, the root accepts everything.
     const isExcludingRoot = !filterString.startsWith('*')
     this._root = new FilterItem('root', isExcludingRoot)
@@ -14,30 +164,49 @@ class Filter {
 
   get root () { return this._root }
 
-  parseFilterString (filterString) {
-    if (filterString.startsWith('*')) {
-      // This also covers an input of `*`
-      const rules = filterString.slice(2).split(',')
-      return rules
-        .filter(rule => rule.length > 0)
-    } else {
-      return filterString.split(',').filter(rule => rule.length > 0)
+  splitUnescape (input, separator) {
+    const escapedSep = `\\${separator}`
+    const rules = []
+    for (let i = 0; i < input.length;) {
+      let nextSep = input.indexOf(separator, i)
+      while (nextSep >= 0 && input[nextSep - 1] === '\\') {
+        nextSep = input.indexOf(separator, nextSep + 1)
+      }
+      if (nextSep === -1) {
+        rules.push(input.slice(i).replaceAll(escapedSep, separator))
+        break
+      } else {
+        rules.push(input.slice(i, nextSep).replaceAll(escapedSep, separator))
+        i = nextSep + 1
+      }
     }
+    return rules
+  }
+
+  parseRules (filterString) {
+    if (filterString.startsWith('*')) {
+      filterString = filterString.slice(2)
+    }
+    return this.splitUnescape(filterString, ',')
+  }
+
+  parseRule (ruleString) {
+    return this.splitUnescape(ruleString, '.')
   }
 
   ingestRules (rules) {
     const [excludingRules, includingRules] = [[], []]
     for (const rule of rules) {
       if (rule.startsWith('-')) {
-        excludingRules.push(rule)
+        excludingRules.push(this.parseRule(rule.slice(1)))
       } else {
-        includingRules.push(rule)
+        includingRules.push(this.parseRule(rule))
       }
     }
 
     for (const rule of includingRules) {
       let head = this._root
-      for (const key of rule.split('.')) {
+      for (const key of rule) {
         head = head.add(new FilterItem(key, false))
       }
     }
@@ -45,7 +214,7 @@ class Filter {
     const exclItems = new FilterItem('ExclRoot', true)
     for (const rule of excludingRules) {
       let head = exclItems
-      for (const key of rule.slice(1).split('.')) {
+      for (const key of rule) {
         head = head.add(new FilterItem(key, true))
       }
     }
@@ -169,4 +338,4 @@ class AlwaysFilter {
   toString () { return JSON.stringify({ CanTag: this._canTag }) }
 }
 
-module.exports = { Filter, FilterItem }
+module.exports = { Filter, FilterItem, Mask, MaskNode }
