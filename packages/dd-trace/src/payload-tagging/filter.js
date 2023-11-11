@@ -1,13 +1,10 @@
 class Mask {
   constructor (filterString) {
     const rules = this.parseRules(filterString)
-    this._isGlob = filterString.startsWith('*')
     this._root = new MaskNode(
       'root',
-      this,
-      {
-        isDeselect: false, isGlob: filterString.startsWith('*')
-      }
+      undefined,
+      { isDeselect: true }
     )
     for (const rule of rules) {
       const chain = this.makeChain(rule)
@@ -37,9 +34,6 @@ class Mask {
   }
 
   parseRules (filterString) {
-    //    if (filterString.startsWith('*')) {
-    //      filterString = filterString.slice(2)
-    //    }
     return this.splitUnescape(filterString, ',')
   }
 
@@ -53,10 +47,10 @@ class Mask {
       rule = rule.slice(1)
     }
     const keys = this.parseRule(rule)
-    const root = new MaskNode(keys[0], this, { isDeselect })
+    const root = new MaskNode(keys[0], undefined, { isDeselect })
     let head = root
     for (const key of keys.slice(1)) {
-      const child = new MaskNode(key, this, { isDeselect, children: new Map() })
+      const child = new MaskNode(key, head, { isDeselect, children: new Map() })
       head._children.set(key, child)
       head = child
     }
@@ -67,25 +61,36 @@ class Mask {
 }
 
 class MaskNode {
-  constructor (key, mask, { isDeselect, children }) {
+  constructor (key, parent, { isDeselect, children }) {
     this.name = key
-    this._mask = mask
+    this._parent = parent
     this._isDeselect = isDeselect
     this._children = children || new Map()
   }
 
   get isLeaf () { return this._children.size === 0 }
 
-  get childIsGlob () { return this._children.size === 1 && this._children.get('*') !== undefined }
+  get isGlob () { return this.name === '*' }
+
+  get globChild () { return this._children.get('*') }
+
+  get isInInclusivePath () {
+    let node = this
+    while (node._parent) {
+      // If I am an inclusive glob, I am inclusive for an undefined node
+      if (node.isGlob && !node._isDeselect) return true
+      // If my sibling is an inclusive glob, I am inclusive for an undefined node
+      const globChild = node._parent.globChild
+      if (globChild && !globChild._isDeselect) return true
+      node = node._parent
+    }
+    return false
+  }
 
   addChild (node) {
-    if (node.isLeaf) {
-      this._children.set(node.name, node)
-      return
-    }
-
     const myChild = this._children.get(node.name)
     if (myChild === undefined) {
+      node._parent = this
       this._children.set(node.name, node)
     } else {
       for (const child of node._children.values()) {
@@ -97,23 +102,40 @@ class MaskNode {
   next (key) {
     const nextNode = this._children.get(key)
     if (nextNode === undefined) {
-      if (this.childIsGlob) return this._children.get('*')
-      return new EndNode(!this._isDeselect, this._mask)
+      if (this.globChild) return this._children.get('*')
+      return new EndNode(!this._isDeselect, this._parent)
     }
     return nextNode
   }
 
-  canTag (key) {
-    if (this.childIsGlob) { return true }
-    if (this.isLeaf) { return !this._isDeselect }
+  canTag (key, isLast) {
     const node = this._children.get(key)
-    console.log(`child node ${node} for ${key} from ${this}`)
-    if (node === undefined) {
-      console.log(`undef for ${key} ${this._isDeselect}`)
-      return this._isDeselect
+    console.log(`context ${this}: child node ${node} for ${key}`)
+    if (node !== undefined) {
+      if (node.isLeaf) {
+        console.log(`leaf node, ${!node._isDeselect}`)
+        return !node._isDeselect
+      }
+      if (isLast) {
+        console.log(`isLast ${this.isInInclusivePath}`)
+        return this.isInInclusivePath
+      }
+      console.log('fallthrough true')
+      return true
+    } else {
+      // if (this.isGlob) { return !this._isDeselect }
+      if (this.globChild) {
+        console.log('accept glob true')
+        return true
+      }
+      if (isLast) {
+        if (this.isLeaf) return !this._isDeselect
+        console.log(`inclusiveParent undef ${this.isInInclusivePath}`)
+        return this.isInInclusivePath
+      }
+      console.log(`fallthrough ${!this._isDeselect}`)
+      return !this._isDeselect
     }
-    if (node.isLeaf) return !node._isDeselect
-    return true
   }
 
   toString () {

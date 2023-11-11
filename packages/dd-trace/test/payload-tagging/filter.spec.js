@@ -23,7 +23,6 @@ describe('Filtering', () => {
 
   it('should exclude paths when excluding', () => {
     const filter = new Mask('*,-foo.bar,-foo.quux')
-    filter.showTree()
     const tags = getBodyTags(input, ctype, optsWithFilter(filter))
     expect(tags).to.deep.equal({
       'http.payload.bar': '3',
@@ -34,7 +33,6 @@ describe('Filtering', () => {
   it('should only provide included paths when including', () => {
     const filter = new Mask('foo.bar,foo.quux')
     const input = JSON.stringify({ foo: { bar: 1, quux: 2, baz: 10 }, bar: 3 })
-    filter.showTree()
     const tags = getBodyTags(input, ctype, optsWithFilter(filter))
     expect(tags).to.deep.equal({
       'http.payload.foo.bar': '1',
@@ -44,7 +42,6 @@ describe('Filtering', () => {
 
   it('should remove an entire section if given a partial path', () => {
     const filter = new Mask('*,-foo')
-    filter.showTree()
     const tags = getBodyTags(input, ctype, optsWithFilter(filter))
     expect(tags).to.deep.equal({
       'http.payload.bar': '3'
@@ -56,7 +53,8 @@ describe('Filtering', () => {
     const tags = getBodyTags(input, ctype, optsWithFilter(filter))
     expect(tags).to.deep.equal({
       'http.payload.foo.bar': '1',
-      'http.payload.foo.quux': '2'
+      'http.payload.foo.quux': '2',
+      'http.payload.foo.baz': '10'
     })
   })
 
@@ -64,7 +62,8 @@ describe('Filtering', () => {
     const filter = new Mask('foo,-foo.bar')
     const tags = getBodyTags(input, ctype, optsWithFilter(filter))
     expect(tags).to.deep.equal({
-      'http.payload.foo.quux': '2'
+      'http.payload.foo.quux': '2',
+      'http.payload.foo.baz': '10'
     })
   })
 
