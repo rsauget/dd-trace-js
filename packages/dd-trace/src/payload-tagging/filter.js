@@ -1,4 +1,9 @@
 class Mask {
+  /**
+   * The mask to apply to JSON objects
+   *
+   * @param {string} filterString
+   */
   constructor (filterString) {
     this._filterString = filterString
     const rules = this.parseRules(filterString)
@@ -14,6 +19,14 @@ class Mask {
 
   get root () { return this._root }
 
+  /**
+   * Split the input according to a given separator, taking into account
+   * escaped instances of the separator
+   *
+   * @param {string} input
+   * @param {string} separator
+   * @returns {string} an unescaped copy of the input.
+   */
   splitUnescape (input, separator) {
     const escapedSep = `\\${separator}`
     const rules = []
@@ -41,6 +54,12 @@ class Mask {
     return this.splitUnescape(ruleString, '.')
   }
 
+  /**
+   * Build a tree representation of a single rule.
+   *
+   * @param {string} rule
+   * @returns {MaskNode} the root node representation of the rule.
+   */
   makeChain (rule) {
     const isDeselect = rule.startsWith('-')
     if (isDeselect) {
@@ -61,11 +80,22 @@ class Mask {
 
 class MaskHead {
   constructor (mask, prev, head = null) {
+  /**
+   * A head-tracking helper for iterating recursively through a mask tree.
+   *
+   * @param {Mask} mask
+   * @param {MaskNode} head
+   */
     this._mask = mask
     this._prev = prev
     this._head = head === null ? mask._root : head
   }
 
+  /**
+   *
+   * @param {string} key
+   * @returns {MaskNode | undefined}
+   */
   withNext (key) {
     return new MaskHead(this._mask, this._head, this._head.next(key))
   }
@@ -75,6 +105,14 @@ class MaskHead {
 
 class MaskNode {
   constructor (key, { isDeselect, children, isRoot = false }) {
+  /**
+   * A node of the JSON mask tree
+   *
+   * @param {string} key
+   * @param {object} options
+   * @param {boolean} options.isDeselect
+   * @param {boolean} options.isRoot
+   */
     this.name = key
     this._parent = undefined
     this._isDeselect = isDeselect
@@ -104,6 +142,12 @@ class MaskNode {
 
   getChild (key) { return this._children.get(key) }
 
+  /**
+   * Get the child node corresponding to a
+   *
+   * @param {string} key
+   * @returns {MaskNode | undefined}
+   */
   next (key) {
     const nextNode = this.getChild(key)
     if (nextNode === undefined) {
