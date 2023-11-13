@@ -1,10 +1,10 @@
 class Mask {
   constructor (filterString) {
+    this._filterString = filterString
     const rules = this.parseRules(filterString)
     this._root = new MaskNode(
       'root',
-      undefined,
-      { isDeselect: true }
+      { isDeselect: true, isRoot: true }
     )
     for (const rule of rules) {
       const chain = this.makeChain(rule)
@@ -47,94 +47,100 @@ class Mask {
       rule = rule.slice(1)
     }
     const keys = this.parseRule(rule)
-    const root = new MaskNode(keys[0], undefined, { isDeselect })
-    let head = root
+    const localRoot = new MaskNode(keys[0], { isDeselect })
+    let head = localRoot
     for (const key of keys.slice(1)) {
-      const child = new MaskNode(key, head, { isDeselect, children: new Map() })
-      head._children.set(key, child)
-      head = child
+      head = head.addChild(new MaskNode(key, { isDeselect, children: new Map() }))
     }
-    return root
+    head.addChild(new MaskNode('*', { isDeselect, children: new Map() }))
+    return localRoot
   }
 
   showTree () { return this._root.showTree() }
 }
 
+class MaskHead {
+  constructor (mask, prev, head = null) {
+    this._mask = mask
+    this._prev = prev
+    this._head = head === null ? mask._root : head
+  }
+
+  withNext (key) {
+    return new MaskHead(this._mask, this._head, this._head.next(key))
+  }
+
+  canTag () { return this._head.canTag(...arguments, this._prev) }
+}
+
 class MaskNode {
-  constructor (key, parent, { isDeselect, children }) {
+  constructor (key, { isDeselect, children, isRoot = false }) {
     this.name = key
-    this._parent = parent
+    this._parent = undefined
     this._isDeselect = isDeselect
     this._children = children || new Map()
+    this._isRoot = isRoot
   }
 
   get isLeaf () { return this._children.size === 0 }
 
   get isGlob () { return this.name === '*' }
 
-  get globChild () { return this._children.get('*') }
-
-  get isInInclusivePath () {
-    let node = this
-    while (node._parent) {
-      // If I am an inclusive glob, I am inclusive for an undefined node
-      if (node.isGlob && !node._isDeselect) return true
-      // If my sibling is an inclusive glob, I am inclusive for an undefined node
-      const globChild = node._parent.globChild
-      if (globChild && !globChild._isDeselect) return true
-      node = node._parent
-    }
-    return false
-  }
+  get globChild () { return this.getChild('*') }
 
   addChild (node) {
     const myChild = this._children.get(node.name)
     if (myChild === undefined) {
       node._parent = this
       this._children.set(node.name, node)
+      return node
     } else {
       for (const child of node._children.values()) {
         myChild.addChild(child)
       }
+      return myChild
     }
   }
 
+  getChild (key) { return this._children.get(key) }
+
   next (key) {
-    const nextNode = this._children.get(key)
+    const nextNode = this.getChild(key)
     if (nextNode === undefined) {
-      if (this.globChild) return this._children.get('*')
-      return new EndNode(!this._isDeselect, this._parent)
+      if (this.globChild) return this.globChild
     }
     return nextNode
   }
 
   canTag (key, isLast) {
-    const node = this._children.get(key)
+    const node = this.next(key)
     console.log(`context ${this}: child node ${node} for ${key}`)
-    if (node !== undefined) {
-      if (node.isLeaf) {
-        console.log(`leaf node, ${!node._isDeselect}`)
-        return !node._isDeselect
+    if (node === undefined) {
+      if (this.isGlob && this.isLeaf) {
+        console.log(`undef ${!this._isDeselect}`)
+        return !this._isDeselect
       }
-      if (isLast) {
-        console.log(`isLast ${this.isInInclusivePath}`)
-        return this.isInInclusivePath
-      }
-      console.log('fallthrough true')
-      return true
-    } else {
-      // if (this.isGlob) { return !this._isDeselect }
-      if (this.globChild) {
-        console.log('accept glob true')
+      const isIncludingPath = !this._isDeselect
+      console.log(`undef incl path ${isIncludingPath}`)
+      if (isIncludingPath) {
+        // If we are in an including path and we haven't found the tag,
+        // then we're not included
+        return false
+      } else {
+        // We're in the root, which should never select anything
+        if (this._isRoot) return false
+        // Otherwise, we're in an excluding path and we haven't found it,
+        // so we're included
         return true
       }
+    } else {
       if (isLast) {
-        if (this.isLeaf) return !this._isDeselect
-        console.log(`inclusiveParent undef ${this.isInInclusivePath}`)
-        return this.isInInclusivePath
+        if (node.isLeaf || (node._children.size === 1 && node.globChild?.isLeaf)) {
+          console.log(`last and leaf ${!node._isDeselect}`)
+          return !node._isDeselect
+        }
       }
-      console.log(`fallthrough ${!this._isDeselect}`)
-      return !this._isDeselect
+      return true
     }
   }
 
@@ -155,209 +161,4 @@ class MaskNode {
   }
 }
 
-class EndNode {
-  constructor (canTag, mask) {
-    this._canTag = canTag
-    this._mask = mask
-  }
-
-  canTag () { return this._canTag }
-
-  next () { return this }
-
-  toString () { return `EndNode {canTag: ${this._canTag}}` }
-
-  showTree (indent = 0) { return `${' '.repeat(indent)}${this.toString()}` }
-}
-
-/**
- * A filter for the Payload Tagging DSL.
- *
- * @property {FilterItem} root
- */
-class Filter {
-  constructor (filterString) {
-    const rules = this.parseRules(filterString)
-    // With a glob, the root accepts everything.
-    const isExcludingRoot = !filterString.startsWith('*')
-    this._root = new FilterItem('root', isExcludingRoot)
-    this.ingestRules(rules)
-  }
-
-  get root () { return this._root }
-
-  splitUnescape (input, separator) {
-    const escapedSep = `\\${separator}`
-    const rules = []
-    for (let i = 0; i < input.length;) {
-      let nextSep = input.indexOf(separator, i)
-      while (nextSep >= 0 && input[nextSep - 1] === '\\') {
-        nextSep = input.indexOf(separator, nextSep + 1)
-      }
-      if (nextSep === -1) {
-        rules.push(input.slice(i).replaceAll(escapedSep, separator))
-        break
-      } else {
-        rules.push(input.slice(i, nextSep).replaceAll(escapedSep, separator))
-        i = nextSep + 1
-      }
-    }
-    return rules
-  }
-
-  parseRules (filterString) {
-    if (filterString.startsWith('*')) {
-      filterString = filterString.slice(2)
-    }
-    return this.splitUnescape(filterString, ',')
-  }
-
-  parseRule (ruleString) {
-    return this.splitUnescape(ruleString, '.')
-  }
-
-  ingestRules (rules) {
-    const [excludingRules, includingRules] = [[], []]
-    for (const rule of rules) {
-      if (rule.startsWith('-')) {
-        excludingRules.push(this.parseRule(rule.slice(1)))
-      } else {
-        includingRules.push(this.parseRule(rule))
-      }
-    }
-
-    for (const rule of includingRules) {
-      let head = this._root
-      for (const key of rule) {
-        head = head.add(new FilterItem(key, false))
-      }
-    }
-
-    const exclItems = new FilterItem('ExclRoot', true)
-    for (const rule of excludingRules) {
-      let head = exclItems
-      for (const key of rule) {
-        head = head.add(new FilterItem(key, true))
-      }
-    }
-
-    for (const exclHead of exclItems._children.values()) {
-      this._root.add(exclHead)
-    }
-  }
-}
-
-/**
- * A filter item
- *
- * @property {string} name
- * @property {boolean} _isExcluding
- * @property {Map<string,FilterItem>} _children
- */
-class FilterItem {
-  constructor (key, isExcluding) {
-    this.name = key
-    this._isExcluding = isExcluding
-    this._children = new Map()
-  }
-
-  get isLeaf () { return this._children.size === 0 }
-
-  makeExclusive () {
-    this._isExcluding = true
-    this._children.clear()
-  }
-
-  /**
-   * Add a node to our children
-   * @param {FilterItem} node
-   * @returns {FilterItem} The child node after addition
-   */
-  add (node) {
-    const ourNode = this._children.get(node.name)
-    if (ourNode === undefined) {
-      this._children.set(node.name, node)
-    } else {
-      ourNode.merge(node)
-    }
-    return this._children.get(node.name)
-  }
-
-  /**
-   * Merge another node to ourself: children and exclusive status
-   * @param {FilterItem} other
-   * @returns {FilterItem} Ourself
-   */
-  merge (other) {
-    // We hit an excluding leaf, so there's no need to conserve anything beyond this node
-    if (other.isLeaf && other._isExcluding) {
-      this.makeExclusive()
-      this._children.clear()
-    } else {
-      for (const child of other._children.values()) {
-        this.add(child)
-      }
-    }
-    return this
-  }
-
-  /**
-   * Are we allowed to tag the given key, given available children
-   * @param {string} key
-   * @returns {boolean}
-   */
-  canTag (key) {
-    // Edge case: we need to know what to do with keys when we're at the Filter root
-    if (this.isLeaf) {
-      return !this._isExcluding
-    }
-    const child = this._children.get(key)
-    if (child === undefined) {
-      return !this._isExcluding
-    }
-    if (child.isLeaf) {
-      return !child._isExcluding
-    }
-    return true
-  }
-
-  next (key) {
-    return this._children.get(key) || new AlwaysFilter(this._isExcluding)
-  }
-
-  toString () {
-    return JSON.stringify({
-      name: this.name,
-      isExcluding: this._isExcluding,
-      children: Array.from(this._children.keys())
-    })
-  }
-
-  static showTree (node, indent = 0) {
-    const indentStr = ' '.repeat(indent)
-    console.log(`${indentStr}${node}`)
-    if (node instanceof AlwaysFilter || node === undefined) return
-    for (const child of node._children.values()) {
-      this.showTree(child, indent + 2)
-    }
-  }
-}
-
-/**
- * A filter item that always replies the same to `canTag`.
- * When we exhaust a filter path, this replies the same as the last available
- * item, and it resets itself as the next available filter item.
- */
-class AlwaysFilter {
-  constructor (isExclusive) {
-    this._canTag = !isExclusive
-  }
-
-  canTag () { return this._canTag }
-
-  next () { return this }
-
-  toString () { return JSON.stringify({ CanTag: this._canTag }) }
-}
-
-module.exports = { Filter, FilterItem, Mask, MaskNode }
+module.exports = { Mask, MaskNode, MaskHead }

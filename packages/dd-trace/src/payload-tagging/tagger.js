@@ -3,6 +3,7 @@ const {
   PAYLOAD_TAG_RESPONSE_PREFIX: PAYLOAD_RESPONSE_PREFIX,
   PAYLOAD_TAGGING_MAX_TAGS
 } = require('../constants')
+const { MaskHead } = require('./filter')
 
 const redactedKeys = [
   'authorization', 'x-authorization', 'password', 'token'
@@ -22,9 +23,9 @@ function tagsFromObject (object, filter, maxDepth, prefix) {
   let tagCount = 0
   const result = {}
 
-  filter.showTree()
+  const head = new MaskHead(filter)
 
-  function tagRec (prefix, object, maskPointer = filter.root, path = [], depth = 0) {
+  function tagRec (prefix, object, maskHead = head, depth = 0) {
     // Off by one: _dd.payload_tags_trimmed counts as 1 tag
     if (tagCount >= PAYLOAD_TAGGING_MAX_TAGS - 1) {
       result['_dd.payload_tags_trimmed'] = true
@@ -62,8 +63,8 @@ function tagsFromObject (object, filter, maxDepth, prefix) {
       for (const [key, value] of Object.entries(object)) {
         // console.log(`can tag ${key}: ${maskPointer.canTag(key)}`)
         const isLastKey = !(typeof value === 'object')
-        if (!maskPointer.canTag(key, isLastKey, path)) continue
-        tagRec(`${prefix}.${escapeKey(key)}`, value, maskPointer.next(key), depth)
+        if (!maskHead.canTag(key, isLastKey)) continue
+        tagRec(`${prefix}.${escapeKey(key)}`, value, maskHead.withNext(key), depth)
       }
     }
   }

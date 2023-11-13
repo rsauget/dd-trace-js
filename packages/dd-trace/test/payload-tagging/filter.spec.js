@@ -67,15 +67,31 @@ describe('Filtering', () => {
     })
   })
 
-  it('should not add specific includes from an exclude path', () => {
+  it('should add specific includes from an exclude path', () => {
     const filter = new Mask('*,-foo,foo.bar')
     const tags = getBodyTags(input, ctype, optsWithFilter(filter))
-    expect(tags).to.deep.equal({ 'http.payload.bar': '3' })
+    expect(tags).to.deep.equal({
+      'http.payload.bar': '3',
+      'http.payload.foo.bar': '1'
+    })
+  })
+
+  it('should select correctly on toplevel glob', () => {
+    const filter = new Mask('*,-foo.bar')
+    const tags = getBodyTags(input, ctype, optsWithFilter(filter))
+    expect(tags).to.deep.equal({
+      'http.payload.foo.quux': '2',
+      'http.payload.bar': '3',
+      'http.payload.foo.baz': '10'
+    })
   })
 
   it('should accept globs in exclude paths', () => {
     const filter = new Mask('*,-bar,-*.bar')
     const tags = getBodyTags(input, ctype, optsWithFilter(filter))
-    expect(tags).to.deep.equal({ 'http.payload.foo.quux': '3' })
+    expect(tags).to.deep.equal({
+      'http.payload.foo.quux': '2',
+      'http.payload.foo.baz': '10'
+    })
   })
 })

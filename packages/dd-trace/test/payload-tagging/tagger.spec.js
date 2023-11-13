@@ -1,7 +1,7 @@
 const { getBodyTags } = require('../../src/payload-tagging/tagger')
-const { Filter } = require('../../src/payload-tagging/filter')
+const { Mask } = require('../../src/payload-tagging/filter')
 
-const globFilter = new Filter('*')
+const globFilter = new Mask('*')
 const defaultOpts = { filter: globFilter, maxDepth: 10, prefix: 'http.payload' }
 
 describe('JSON payload tagger', () => {
