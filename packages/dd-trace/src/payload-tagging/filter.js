@@ -6,18 +6,16 @@ class Mask {
    */
   constructor (filterString) {
     this._filterString = filterString
-    const rules = this.parseRules(filterString)
     this._root = new MaskNode(
       'root',
       { isDeselect: true, isRoot: true }
     )
-    for (const rule of rules) {
+
+    for (const rule of this.parseRules(filterString)) {
       const chain = this.makeChain(rule)
       this._root.addChild(chain)
     }
   }
-
-  get root () { return this._root }
 
   /**
    * Split the input according to a given separator, taking into account
@@ -74,20 +72,17 @@ class Mask {
     head.addChild(new MaskNode('*', { isDeselect, children: new Map() }))
     return localRoot
   }
-
-  showTree () { return this._root.showTree() }
 }
 
 class MaskHead {
-  constructor (mask, prev, head = null) {
   /**
    * A head-tracking helper for iterating recursively through a mask tree.
    *
    * @param {Mask} mask
    * @param {MaskNode} head
    */
+  constructor (mask, head = null) {
     this._mask = mask
-    this._prev = prev
     this._head = head === null ? mask._root : head
   }
 
@@ -97,14 +92,13 @@ class MaskHead {
    * @returns {MaskNode | undefined}
    */
   withNext (key) {
-    return new MaskHead(this._mask, this._head, this._head.next(key))
+    return new MaskHead(this._mask, this._head.next(key))
   }
 
-  canTag () { return this._head.canTag(...arguments, this._prev) }
+  canTag () { return this._head.canTag(...arguments) }
 }
 
 class MaskNode {
-  constructor (key, { isDeselect, children, isRoot = false }) {
   /**
    * A node of the JSON mask tree
    *
@@ -113,10 +107,10 @@ class MaskNode {
    * @param {boolean} options.isDeselect
    * @param {boolean} options.isRoot
    */
+  constructor (key, { isDeselect, isRoot = false }) {
     this.name = key
-    this._parent = undefined
     this._isDeselect = isDeselect
-    this._children = children || new Map()
+    this._children = new Map()
     this._isRoot = isRoot
   }
 
@@ -127,9 +121,8 @@ class MaskNode {
   get globChild () { return this.getChild('*') }
 
   addChild (node) {
-    const myChild = this._children.get(node.name)
+    const myChild = this.getChild(node.name)
     if (myChild === undefined) {
-      node._parent = this
       this._children.set(node.name, node)
       return node
     } else {
@@ -158,14 +151,11 @@ class MaskNode {
 
   canTag (key, isLast) {
     const node = this.next(key)
-    console.log(`context ${this}: child node ${node} for ${key}`)
     if (node === undefined) {
       if (this.isGlob && this.isLeaf) {
-        console.log(`undef ${!this._isDeselect}`)
         return !this._isDeselect
       }
       const isIncludingPath = !this._isDeselect
-      console.log(`undef incl path ${isIncludingPath}`)
       if (isIncludingPath) {
         // If we are in an including path and we haven't found the tag,
         // then we're not included
@@ -178,29 +168,14 @@ class MaskNode {
         return true
       }
     } else {
+      // Unless we've reached the end of the object we're currently masking, we
+      // can keep going.
       if (isLast) {
         if (node.isLeaf || (node._children.size === 1 && node.globChild?.isLeaf)) {
-          console.log(`last and leaf ${!node._isDeselect}`)
           return !node._isDeselect
         }
       }
       return true
-    }
-  }
-
-  toString () {
-    return JSON.stringify({
-      name: this.name,
-      isDeselect: this._isDeselect,
-      children: Array.from(this._children.keys())
-    })
-  }
-
-  showTree (indent = 0) {
-    const indentStr = ' '.repeat(indent)
-    console.log(`${indentStr}${this}`)
-    for (const child of this._children.values()) {
-      child.showTree(indent + 2)
     }
   }
 }
