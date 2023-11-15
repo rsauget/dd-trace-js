@@ -22,7 +22,7 @@ describe('nosql injection detection in mongodb - whole feature', () => {
 
       if (!satisfiesNodeVersionForMongo3and4 && !satisfiesNodeVersionForMongo5 && !satisfiesNodeVersionForMongo6) return
 
-      withVersions('mongodb-core', 'mquery', mqueryVersion => {
+      withVersions('mongoose', 'mquery', mqueryVersion => {
         let mquery
 
         const vulnerableMethodFilename = 'mquery-vulnerable-method.js'

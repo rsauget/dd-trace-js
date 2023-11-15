@@ -143,7 +143,7 @@ jobs:
         ports:
           - 27017:27017
     env:
-      PLUGINS: express-mongo-sanitize|mquery
+      PLUGINS: express-mongo-sanitize
       SERVICES: mongo
     steps:
       - uses: actions/checkout@v2
@@ -163,7 +163,7 @@ jobs:
         ports:
           - 27017:27017
     env:
-      PLUGINS: mongoose
+      PLUGINS: mongoose|mquery
       SERVICES: mongo
     steps:
       - uses: actions/checkout@v2
