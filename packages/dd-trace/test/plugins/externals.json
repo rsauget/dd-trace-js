@@ -185,6 +185,12 @@
       "versions": ["3.7.2"]
     }
   ],
+  "mongodb": [
+    {
+      "name": "mquery",
+      "versions": [">=4.0.0"]
+    }
+  ],
   "mongodb-core": [
     {
       "name": "bson",
@@ -203,10 +209,6 @@
     {
       "name": "body-parser",
       "versions": ["1.20.1"]
-    },
-    {
-      "name": "mquery",
-      "versions": [">=4.0.0"]
     }
   ],
   "next": [
