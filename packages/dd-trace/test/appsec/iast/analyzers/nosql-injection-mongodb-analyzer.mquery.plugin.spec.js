@@ -22,7 +22,7 @@ describe('nosql injection detection in mongodb - whole feature', () => {
 
       if (!satisfiesNodeVersionForMongo3and4 && !satisfiesNodeVersionForMongo5 && !satisfiesNodeVersionForMongo6) return
 
-      withVersions('mongoose', 'mquery', mqueryVersion => {
+      withVersions('express-mongo-sanitize', 'mquery', mqueryVersion => {
         let mquery
 
         const vulnerableMethodFilename = 'mquery-vulnerable-method.js'
@@ -145,6 +145,31 @@ describe('nosql injection detection in mongodb - whole feature', () => {
                 })
             }, 'NOSQL_MONGODB_INJECTION')
           })
+
+        withVersions('express-mongo-sanitize', 'express-mongo-sanitize', expressMongoSanitizeVersion => {
+          prepareTestServerForIastInExpress('Test with sanitization middleware', expressVersion, (expressApp) => {
+            const mongoSanitize =
+                require(`../../../../../../versions/express-mongo-sanitize@${expressMongoSanitizeVersion}`).get()
+            expressApp.use(mongoSanitize())
+          }, (testThatRequestHasVulnerability, testThatRequestHasNoVulnerability) => {
+            testThatRequestHasNoVulnerability({
+              fn: async (req, res) => {
+                const filter = {
+                  name: {
+                    child: [req.query.key]
+                  }
+                }
+                require(tmpFilePath).vulnerableFindOne(testCollection, filter, () => {
+                  res.end()
+                })
+              },
+              vulnerability: 'NOSQL_MONGODB_INJECTION',
+              makeRequest: (done, config) => {
+                axios.get(`http://localhost:${config.port}/?key=value`).catch(done)
+              }
+            })
+          })
+        })
       })
     })
   })
