@@ -94,7 +94,7 @@ describe('nosql injection detection in mongodb - whole feature', () => {
                     child: [req.query.key]
                   }
                 }
-                require(tmpFilePath).vulnerableFind(testCollection, filter, () => {
+                require(tmpFilePath).vulnerableFind(mquery, testCollection, filter, () => {
                   res.end()
                 })
               },
@@ -106,7 +106,7 @@ describe('nosql injection detection in mongodb - whole feature', () => {
                 occurrences: 1,
                 location: {
                   path: vulnerableMethodFilename,
-                  line: 9
+                  line: 7
                 }
               }
             })
@@ -119,7 +119,7 @@ describe('nosql injection detection in mongodb - whole feature', () => {
                     child: [req.query.key]
                   }
                 }
-                require(tmpFilePath).vulnerableFindOne(testCollection, filter, () => {
+                require(tmpFilePath).vulnerableFindOne(mquery, testCollection, filter, () => {
                   res.end()
                 })
               },
@@ -131,7 +131,7 @@ describe('nosql injection detection in mongodb - whole feature', () => {
                 occurrences: 1,
                 location: {
                   path: vulnerableMethodFilename,
-                  line: 16
+                  line: 14
                 }
               }
             })
@@ -159,7 +159,7 @@ describe('nosql injection detection in mongodb - whole feature', () => {
                     child: [req.query.key]
                   }
                 }
-                require(tmpFilePath).vulnerableFindOne(testCollection, filter, () => {
+                require(tmpFilePath).vulnerableFindOne(mquery, testCollection, filter, () => {
                   res.end()
                 })
               },
