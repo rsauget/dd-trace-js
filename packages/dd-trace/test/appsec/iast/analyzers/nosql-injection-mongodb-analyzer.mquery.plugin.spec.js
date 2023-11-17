@@ -22,11 +22,17 @@ describe('nosql injection detection with mquery', () => {
 
       if (!satisfiesNodeVersionForMongo3and4 && !satisfiesNodeVersionForMongo5 && !satisfiesNodeVersionForMongo6) return
 
-      withVersions('express-mongo-sanitize', 'mquery', '>=' + semver.major(mongodb.version()), mqueryVersion => {
-        let mquery
-
+      withVersions('express-mongo-sanitize', 'mquery', mqueryVersion => {
         const vulnerableMethodFilename = 'mquery-vulnerable-method.js'
         let client, testCollection, tmpFilePath, dbName
+
+        const mqueryPkg = require(`../../../../../../versions/mquery@${mqueryVersion}`)
+        const mquery = mqueryPkg.get()
+
+        const mongoDbMajor = semver.major(mongodb.version())
+        const mqueryMajor = semver.major(mqueryPkg.version())
+
+        if (mongoDbMajor !== mqueryMajor && (mongoDbMajor > 5 && mqueryMajor < 5)) return
 
         before(() => {
           return agent.load(['mongodb'], { client: false }, { flushInterval: 1 })
@@ -36,7 +42,6 @@ describe('nosql injection detection with mquery', () => {
           const id = require('../../../../src/id')
           dbName = id().toString()
           const mongo = require(`../../../../../../versions/mongodb@${mongodbVersion}`).get()
-          mquery = require(`../../../../../../versions/mquery@${mqueryVersion}`).get()
 
           client = new mongo.MongoClient(`mongodb://localhost:27017/${dbName}`, {
             useNewUrlParser: true,
@@ -67,7 +72,7 @@ describe('nosql injection detection with mquery', () => {
             testThatRequestHasVulnerability({
               fn: async (req, res) => {
                 try {
-                  const mq = mquery()
+                  await mquery()
                     .collection(testCollection)
                     .find({
                       name: req.query.key,
@@ -75,18 +80,10 @@ describe('nosql injection detection with mquery', () => {
                         'value',
                         false, req.query.key]
                     })
-
-                  const res = await mq
-                    .then(() => {
-                      console.log('then')
-                    })
-                    .catch((e) => {
-                      console.log(e)
-                    })
                 } catch (e) {
                   // do nothing
                 }
-                console.log('end')
+                res.end()
               },
               vulnerability: 'NOSQL_MONGODB_INJECTION',
               makeRequest: (done, config) => {
@@ -115,7 +112,7 @@ describe('nosql injection detection with mquery', () => {
                 occurrences: 1,
                 location: {
                   path: vulnerableMethodFilename,
-                  line: 7
+                  line: 6
                 }
               }
             })
@@ -141,7 +138,7 @@ describe('nosql injection detection with mquery', () => {
                 occurrences: 1,
                 location: {
                   path: vulnerableMethodFilename,
-                  line: 14
+                  line: 12
                 }
               }
             })
