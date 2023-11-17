@@ -76,13 +76,37 @@ describe('JSON payload tagger', () => {
       })
     })
 
-    describe('escaping', () => {
-      it('should escape `.` characters', () => {
-        const input = JSON.stringify({ 'foo.bar': { 'baz': 'quux' } })
-        const tags = getBodyTags(input, 'application/json', defaultOpts)
-        expect(tags).to.deep.equal({
-          'http.payload.foo\\.bar.baz': 'quux'
-        })
+    it('should redact banned keys even if they are objects', () => {
+      const input = JSON.stringify({
+        foo: {
+          authorization: {
+            token: 'tokenpleaseredact',
+            authorization: 'pleaseredact',
+            valid: 'valid'
+          },
+          baz: {
+            password: 'shouldgo',
+            'x-authorization': 'shouldbegone',
+            data: 'shouldstay'
+          }
+        }
+      })
+      const tags = getBodyTags(input, 'application/json', defaultOpts)
+      expect(tags).to.deep.equal({
+        'http.payload.foo.authorization': 'redacted',
+        'http.payload.foo.baz.password': 'redacted',
+        'http.payload.foo.baz.x-authorization': 'redacted',
+        'http.payload.foo.baz.data': 'shouldstay'
+      })
+    })
+  })
+
+  describe('escaping', () => {
+    it('should escape `.` characters in individual keys', () => {
+      const input = JSON.stringify({ 'foo.bar': { 'baz': 'quux' } })
+      const tags = getBodyTags(input, 'application/json', defaultOpts)
+      expect(tags).to.deep.equal({
+        'http.payload.foo\\.bar.baz': 'quux'
       })
     })
   })

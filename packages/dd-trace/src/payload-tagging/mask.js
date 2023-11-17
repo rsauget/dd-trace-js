@@ -12,14 +12,10 @@ class Mask {
       { isSelect: false, isRoot: true }
     )
 
-    for (const rule of this.parseRules(filterString)) {
+    for (const rule of this.parsePaths(filterString)) {
       const chain = this.makeChain(rule)
       this._root.addChild(chain)
     }
-  }
-
-  getHead () {
-    return new MaskHead(this)
   }
 
   /**
@@ -49,11 +45,11 @@ class Mask {
     return rules
   }
 
-  parseRules (filterString) {
+  parsePaths (filterString) {
     return this.splitUnescape(filterString, ',')
   }
 
-  parseRule (ruleString) {
+  parseKeys (ruleString) {
     return this.splitUnescape(ruleString, '.')
   }
 
@@ -68,7 +64,7 @@ class Mask {
     if (!isSelect) {
       rule = rule.substring(1)
     }
-    const keys = this.parseRule(rule)
+    const keys = this.parseKeys(rule)
     const localRoot = new MaskNode(keys.shift(), { isSelect })
     let head = localRoot
     for (const key of keys) {
@@ -77,30 +73,6 @@ class Mask {
     head.addChild(new MaskNode('*', { isSelect }))
     return localRoot
   }
-}
-
-class MaskHead {
-  /**
-   * A head-tracking helper for iterating recursively through a mask tree.
-   *
-   * @param {Mask} mask
-   * @param {MaskNode} head
-   */
-  constructor (mask, head = null) {
-    this._mask = mask
-    this._head = head === null ? mask._root : head
-  }
-
-  /**
-   *
-   * @param {string} key
-   * @returns {MaskHead}
-   */
-  withNext (key) {
-    return new MaskHead(this._mask, this._head.next(key))
-  }
-
-  canTag (key, isLast) { return this._head.canTag(key, isLast) }
 }
 
 class MaskNode {
@@ -125,6 +97,13 @@ class MaskNode {
 
   get globChild () { return this.getChild(GLOB) }
 
+  /**
+   * Add node as a child of the current node, recursively merging its children
+   * if necessary.
+   *
+   * @param {MaskNode} node
+   * @returns {MaskNode} the updated or inserted child node.
+   */
   addChild (node) {
     const myChild = this.getChild(node.name)
     if (myChild === undefined) {
@@ -138,10 +117,15 @@ class MaskNode {
     }
   }
 
+  /**
+   *
+   * @param {string} key
+   * @returns {MaskNode | undefined}
+   */
   getChild (key) { return this._children.get(key) }
 
   /**
-   * Get the child node corresponding to a
+   * Get the child node corresponding to a key in the object we want to mask.
    *
    * @param {string} key
    * @returns {MaskNode | undefined}
@@ -149,7 +133,7 @@ class MaskNode {
   next (key) {
     const nextNode = this.getChild(key)
     if (nextNode === undefined) {
-      if (this.globChild) return this.globChild
+      return this.globChild
     }
     return nextNode
   }
@@ -187,31 +171,4 @@ class MaskNode {
   }
 }
 
-/**
- * Helper function for tests. Since we want to short-circuit the evaluation and track tag count and depth
- * when tagging payloads, we use this one to check the accuracy of the masking tree building and queries.
- *
- * @param {string} filter
- * @param {object} object
- */
-function getMaskedObject (filter, object) {
-  function maskRec (object, maskHead = filter.getHead()) {
-    if (Array.isArray(object)) {
-      return object.map((item, index) => maskRec(item, maskHead.withNext(index)))
-    }
-    if (typeof object === 'object') {
-      const results = []
-      for (const [key, value] of Object.entries(object)) {
-        const isLastKey = !(typeof value === 'object')
-        if (!maskHead.canTag(key, isLastKey)) continue
-        results.push([key, maskRec(value, maskHead.withNext(key))])
-      }
-      return Object.fromEntries(results)
-    } else {
-      return object
-    }
-  }
-  return maskRec(object)
-}
-
-module.exports = { Mask, getMaskedObject }
+module.exports = { Mask }
