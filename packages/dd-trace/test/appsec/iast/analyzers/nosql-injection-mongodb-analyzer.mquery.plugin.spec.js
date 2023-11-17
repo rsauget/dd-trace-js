@@ -66,19 +66,19 @@ describe('nosql injection detection with mquery', () => {
           (testThatRequestHasVulnerability, testThatRequestHasNoVulnerability) => {
             testThatRequestHasVulnerability({
               fn: async (req, res) => {
-                await mquery()
-                  .find({
-                    name: req.query.key,
-                    value: [1, 2,
-                      'value',
-                      false, req.query.key]
-                  })
-                  .collection(testCollection)
-                  .then(() => {
-                    res.end()
-                  }).catch((err) => {
-                    res.end()
-                  })
+                try {
+                  await mquery()
+                    .collection(testCollection)
+                    .find({
+                      name: req.query.key,
+                      value: [1, 2,
+                        'value',
+                        false, req.query.key]
+                    })
+                } catch (e) {
+                  // do nothing
+                }
+                res.end()
               },
               vulnerability: 'NOSQL_MONGODB_INJECTION',
               makeRequest: (done, config) => {
@@ -90,13 +90,14 @@ describe('nosql injection detection with mquery', () => {
               testDescription: 'should have NOSQL_MONGODB_INJECTION vulnerability in correct file and line [find]',
               fn: async (req, res) => {
                 const filter = {
-                  name: {
-                    child: [req.query.key]
-                  }
+                  name: req.query.key
                 }
-                await require(tmpFilePath).vulnerableFind(mquery, testCollection, filter, () => {
-                  res.end()
-                })
+                try {
+                  await require(tmpFilePath).vulnerableFind(mquery, testCollection, filter)
+                } catch (e) {
+                  // do nothing
+                }
+                res.end()
               },
               vulnerability: 'NOSQL_MONGODB_INJECTION',
               makeRequest: (done, config) => {
@@ -115,13 +116,14 @@ describe('nosql injection detection with mquery', () => {
               testDescription: 'should have NOSQL_MONGODB_INJECTION vulnerability in correct file and line [findOne]',
               fn: async (req, res) => {
                 const filter = {
-                  name: {
-                    child: [req.query.key]
-                  }
+                  name: req.query.key
                 }
-                await require(tmpFilePath).vulnerableFindOne(mquery, testCollection, filter, () => {
-                  res.end()
-                })
+                try {
+                  await require(tmpFilePath).vulnerableFindOne(mquery, testCollection, filter)
+                } catch (e) {
+                  // do nothing
+                }
+                res.end()
               },
               vulnerability: 'NOSQL_MONGODB_INJECTION',
               makeRequest: (done, config) => {
@@ -137,12 +139,16 @@ describe('nosql injection detection with mquery', () => {
             })
 
             testThatRequestHasNoVulnerability(async (req, res) => {
-              await mquery(testCollection)
-                .find({
-                  name: 'test'
-                }).then(() => {
-                  res.end()
-                })
+              try {
+                await mquery()
+                  .collection(testCollection)
+                  .find({
+                    name: 'test'
+                  })
+              } catch (e) {
+                // do nothing
+              }
+              res.end()
             }, 'NOSQL_MONGODB_INJECTION')
           })
 
@@ -155,13 +161,14 @@ describe('nosql injection detection with mquery', () => {
             testThatRequestHasNoVulnerability({
               fn: async (req, res) => {
                 const filter = {
-                  name: {
-                    child: [req.query.key]
-                  }
+                  name: req.query.key
                 }
-                await require(tmpFilePath).vulnerableFindOne(mquery, testCollection, filter, () => {
-                  res.end()
-                })
+                try {
+                  await require(tmpFilePath).vulnerableFindOne(mquery, testCollection, filter)
+                } catch (e) {
+                  // do nothing
+                }
+                res.end()
               },
               vulnerability: 'NOSQL_MONGODB_INJECTION',
               makeRequest: (done, config) => {
