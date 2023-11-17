@@ -8,7 +8,7 @@ const path = require('path')
 const semver = require('semver')
 const fs = require('fs')
 
-describe('nosql injection detection in mongodb - whole feature', () => {
+describe('nosql injection detection with mquery', () => {
   withVersions('express', 'express', '>4.18.0', expressVersion => {
     withVersions('mongodb', 'mongodb', mongodbVersion => {
       const mongodb = require(`../../../../../../versions/mongodb@${mongodbVersion}`)
@@ -66,7 +66,7 @@ describe('nosql injection detection in mongodb - whole feature', () => {
           (testThatRequestHasVulnerability, testThatRequestHasNoVulnerability) => {
             testThatRequestHasVulnerability({
               fn: async (req, res) => {
-                mquery()
+                await mquery()
                   .find({
                     name: req.query.key,
                     value: [1, 2,
@@ -94,7 +94,7 @@ describe('nosql injection detection in mongodb - whole feature', () => {
                     child: [req.query.key]
                   }
                 }
-                require(tmpFilePath).vulnerableFind(mquery, testCollection, filter, () => {
+                await require(tmpFilePath).vulnerableFind(mquery, testCollection, filter, () => {
                   res.end()
                 })
               },
@@ -119,7 +119,7 @@ describe('nosql injection detection in mongodb - whole feature', () => {
                     child: [req.query.key]
                   }
                 }
-                require(tmpFilePath).vulnerableFindOne(mquery, testCollection, filter, () => {
+                await require(tmpFilePath).vulnerableFindOne(mquery, testCollection, filter, () => {
                   res.end()
                 })
               },
@@ -137,7 +137,7 @@ describe('nosql injection detection in mongodb - whole feature', () => {
             })
 
             testThatRequestHasNoVulnerability(async (req, res) => {
-              mquery(testCollection)
+              await mquery(testCollection)
                 .find({
                   name: 'test'
                 }).then(() => {
@@ -159,7 +159,7 @@ describe('nosql injection detection in mongodb - whole feature', () => {
                     child: [req.query.key]
                   }
                 }
-                require(tmpFilePath).vulnerableFindOne(mquery, testCollection, filter, () => {
+                await require(tmpFilePath).vulnerableFindOne(mquery, testCollection, filter, () => {
                   res.end()
                 })
               },
