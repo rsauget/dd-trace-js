@@ -22,7 +22,7 @@ describe('nosql injection detection with mquery', () => {
 
       if (!satisfiesNodeVersionForMongo3and4 && !satisfiesNodeVersionForMongo5 && !satisfiesNodeVersionForMongo6) return
 
-      withVersions('express-mongo-sanitize', 'mquery', mqueryVersion => {
+      withVersions('express-mongo-sanitize', 'mquery', '>=' + semver.major(mongodb.version()), mqueryVersion => {
         let mquery
 
         const vulnerableMethodFilename = 'mquery-vulnerable-method.js'
@@ -67,7 +67,7 @@ describe('nosql injection detection with mquery', () => {
             testThatRequestHasVulnerability({
               fn: async (req, res) => {
                 try {
-                  await mquery()
+                  const mq = mquery()
                     .collection(testCollection)
                     .find({
                       name: req.query.key,
@@ -75,10 +75,18 @@ describe('nosql injection detection with mquery', () => {
                         'value',
                         false, req.query.key]
                     })
+
+                  const res = await mq
+                    .then(() => {
+                      console.log('then')
+                    })
+                    .catch((e) => {
+                      console.log(e)
+                    })
                 } catch (e) {
                   // do nothing
                 }
-                res.end()
+                console.log('end')
               },
               vulnerability: 'NOSQL_MONGODB_INJECTION',
               makeRequest: (done, config) => {
